@@ -1,6 +1,7 @@
 name: carbustock
-description: "Application mobile de disponibilite du carburant"
+description: "Application mobile Flutter pour afficher la disponibilité et le prix du carburant en temps réel en France."
 publish_to: 'none'
+
 version: 1.0.0+1
 
 environment:
@@ -9,10 +10,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_map: ^6.0.0
+  flutter_map: ^6.1.0
   latlong2: ^0.9.0
-  http: ^1.1.0
-  geolocator: ^10.1.0
+  cupertino_icons: ^1.0.6
 
 dev_dependencies:
   flutter_test:
