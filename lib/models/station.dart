@@ -4,8 +4,8 @@ class Station {
   final String address;
   final double latitude;
   final double longitude;
-  final Map<String, double> fuelPrices;
-  final List<String> shortFuels;
+  final Map<String, double> prices;
+  final List<String> shortages;
 
   Station({
     required this.id,
@@ -13,7 +13,7 @@ class Station {
     required this.address,
     required this.latitude,
     required this.longitude,
-    required this.fuelPrices,
-    required this.shortFuels,
+    required this.prices,
+    required this.shortages,
   });
 }
