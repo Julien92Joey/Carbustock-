@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'lib/models/lib/services/lib/screens/map_screen.dart';
 
 void main() {
   runApp(const FuelApp());
@@ -16,14 +17,7 @@ class FuelApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      home: Scaffold(
-        appBar: AppBar(
-          title: const Text('CarbuStock'),
-        ),
-        body: const Center(
-          child: Text('Bienvenue sur CarbuStock !'),
-        ),
-      ),
+      home: const MapScreen(),
     );
   }
 }
