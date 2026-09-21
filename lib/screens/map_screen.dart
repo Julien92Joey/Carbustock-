@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:geolocator/geolocator.dart';
 import '../models/station.dart';
 
 class MapScreen extends StatefulWidget {
@@ -13,9 +14,51 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> {
   final List<Station> _stations = [];
   String? _selectedFuel = 'E10';
+  final MapController _mapController = MapController();
 
-  // Centre de la carte par défaut (Paris)
-  final LatLng _initialCenter = const LatLng(48.8566, 2.3522);
+  // Centre par défaut (Paris)
+  LatLng _currentCenter = const LatLng(48.8566, 2.3522);
+  bool _isLoadingLocation = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _determinePosition();
+  }
+
+  Future<void> _determinePosition() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      if (mounted) setState(() => _isLoadingLocation = false);
+      return;
+    }
+
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        if (mounted) setState(() => _isLoadingLocation = false);
+        return;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      if (mounted) setState(() => _isLoadingLocation = false);
+      return;
+    }
+
+    final Position position = await Geolocator.getCurrentPosition();
+    if (mounted) {
+      setState(() {
+        _currentCenter = LatLng(position.latitude, position.longitude);
+        _isLoadingLocation = false;
+      });
+      _mapController.move(_currentCenter, 14.0);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -45,17 +88,47 @@ class _MapScreenState extends State<MapScreen> {
           const SizedBox(width: 16),
         ],
       ),
-      body: FlutterMap(
-        options: MapOptions(
-          initialCenter: _initialCenter,
-          initialZoom: 13.0,
-        ),
+      body: Stack(
         children: [
-          TileLayer(
-            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-            userAgentPackageName: 'com.carbustock.app',
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: _currentCenter,
+              initialZoom: 13.0,
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.carbustock.app',
+              ),
+            ],
           ),
+          if (_isLoadingLocation)
+            const Positioned(
+              top: 16,
+              left: 16,
+              child: Card(
+                child: Padding(
+                  padding: EdgeInsets.all(8.0),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 8),
+                      Text('Recherche de votre position...'),
+                    ],
+                  ),
+                ),
+              ),
+            ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _determinePosition,
+        child: const Icon(Icons.my_location),
       ),
     );
   }
