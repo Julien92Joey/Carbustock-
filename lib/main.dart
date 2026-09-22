@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
 import 'models/station.dart';
 
 void main() {
@@ -39,18 +41,26 @@ class _MapScreenState extends State<MapScreen> {
   String _selectedFuel = 'E10';
   final MapController _mapController = MapController();
 
-  // Centre de l'Île-de-France par défaut (Paris)
   LatLng _currentCenter = const LatLng(48.8566, 2.3522);
+  LatLng? _userLocation;
+  StreamSubscription<Position>? _positionStreamSubscription;
+
   bool _isLoadingLocation = false;
   bool _isLoadingStations = false;
 
   @override
   void initState() {
     super.initState();
-    _determinePosition();
+    _initLocationService();
   }
 
-  Future<void> _determinePosition() async {
+  @override
+  void dispose() {
+    _positionStreamSubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _initLocationService() async {
     if (!mounted) return;
     setState(() => _isLoadingLocation = true);
 
@@ -79,21 +89,46 @@ class _MapScreenState extends State<MapScreen> {
 
     try {
       final Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.low,
-        timeLimit: const Duration(seconds: 8),
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 10),
       );
       if (mounted) {
         setState(() {
-          _currentCenter = LatLng(position.latitude, position.longitude);
+          _userLocation = LatLng(position.latitude, position.longitude);
+          _currentCenter = _userLocation!;
           _isLoadingLocation = false;
         });
-        _mapController.move(_currentCenter, 11.0);
+        _mapController.move(_currentCenter, 13.0);
       }
     } catch (e) {
       if (mounted) setState(() => _isLoadingLocation = false);
     }
 
+    // Suivi continu en temps réel
+    const locationSettings = LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 10,
+    );
+
+    _positionStreamSubscription = Geolocator.getPositionStream(
+      locationSettings: locationSettings,
+    ).listen((Position position) {
+      if (mounted) {
+        setState(() {
+          _userLocation = LatLng(position.latitude, position.longitude);
+        });
+      }
+    });
+
     _fetchIDFStations();
+  }
+
+  void _centerOnUser() {
+    if (_userLocation != null) {
+      _mapController.move(_userLocation!, 14.0);
+    } else {
+      _initLocationService();
+    }
   }
 
   String _extractBrandName(String address, String city) {
@@ -182,6 +217,17 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  Future<void> _openNavigation(double lat, double lng) async {
+    final uri = Uri.parse('google.navigation:q=$lat,$lng');
+    final fallbackUri = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$lat,$lng');
+
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    } else if (await canLaunchUrl(fallbackUri)) {
+      await launchUrl(fallbackUri, mode: LaunchMode.externalApplication);
+    }
+  }
+
   Color _getMarkerColor(Station station) {
     if (station.shortages.contains(_selectedFuel)) {
       return Colors.red;
@@ -230,7 +276,7 @@ class _MapScreenState extends State<MapScreen> {
               mapController: _mapController,
               options: MapOptions(
                 initialCenter: _currentCenter,
-                initialZoom: 10.5,
+                initialZoom: 11.5,
               ),
               children: [
                 TileLayer(
@@ -238,91 +284,141 @@ class _MapScreenState extends State<MapScreen> {
                   userAgentPackageName: 'com.example.carbustock',
                 ),
                 MarkerLayer(
-                  markers: _stations.map((station) {
-                    final color = _getMarkerColor(station);
-                    final price = station.prices[_selectedFuel];
-                    return Marker(
-                      point: LatLng(station.latitude, station.longitude),
-                      width: 76,
-                      height: 48,
-                      child: GestureDetector(
-                        onTap: () {
-                          showModalBottomSheet(
-                            context: context,
-                            builder: (_) => Padding(
-                              padding: const EdgeInsets.all(16.0),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(station.name, style: Theme.of(context).textTheme.titleLarge),
-                                  const SizedBox(height: 4),
-                                  Text(station.address),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    price != null
-                                        ? 'Prix $_selectedFuel : ${price.toStringAsFixed(3)} €/L'
-                                        : 'Carburant $_selectedFuel non disponible ou en rupture.',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                      color: color == Colors.red ? Colors.red : Colors.green,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF1E1E1E),
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(color: color, width: 1.5),
-                                boxShadow: const [
+                  markers: [
+                    // Repère de localisation de l'utilisateur
+                    if (_userLocation != null)
+                      Marker(
+                        point: _userLocation!,
+                        width: 24,
+                        height: 24,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withOpacity(0.25),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.blue, width: 1.5),
+                          ),
+                          child: Center(
+                            child: Container(
+                              width: 10,
+                              height: 10,
+                              decoration: const BoxDecoration(
+                                color: Colors.blueAccent,
+                                shape: BoxShape.circle,
+                                boxShadow: [
                                   BoxShadow(
                                     color: Colors.black26,
                                     blurRadius: 2,
-                                    offset: Offset(0, 1),
-                                  )
-                                ],
-                              ),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    station.name,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 7.5,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  Text(
-                                    price != null ? '${price.toStringAsFixed(2)}€' : 'RPT',
-                                    style: TextStyle(
-                                      color: color == Colors.red
-                                          ? Colors.redAccent
-                                          : (color == Colors.green ? Colors.lightGreenAccent : Colors.white70),
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                      fontFamily: 'monospace',
-                                    ),
                                   ),
                                 ],
                               ),
                             ),
-                          ],
+                          ),
                         ),
                       ),
-                    );
-                  }).toList(),
+                    // Marqueurs des stations de service
+                    ..._stations.map((station) {
+                      final color = _getMarkerColor(station);
+                      final price = station.prices[_selectedFuel];
+                      return Marker(
+                        point: LatLng(station.latitude, station.longitude),
+                        width: 76,
+                        height: 48,
+                        child: GestureDetector(
+                          onTap: () {
+                            showModalBottomSheet(
+                              context: context,
+                              builder: (_) => Padding(
+                                padding: const EdgeInsets.all(16.0),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(station.name, style: Theme.of(context).textTheme.titleLarge),
+                                    const SizedBox(height: 4),
+                                    Text(station.address),
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      price != null
+                                          ? 'Prix $_selectedFuel : ${price.toStringAsFixed(3)} €/L'
+                                          : 'Carburant $_selectedFuel non disponible ou en rupture.',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        color: color == Colors.red ? Colors.red : Colors.green,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: ElevatedButton.icon(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.blue,
+                                          foregroundColor: Colors.white,
+                                          padding: const EdgeInsets.symmetric(vertical: 12),
+                                        ),
+                                        onPressed: () {
+                                          Navigator.pop(context);
+                                          _openNavigation(station.latitude, station.longitude);
+                                        },
+                                        icon: const Icon(Icons.navigation),
+                                        label: const Text('Y ALLER (GPS)', style: TextStyle(fontWeight: FontWeight.bold)),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF1E1E1E),
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(color: color, width: 1.5),
+                                  boxShadow: const [
+                                    BoxShadow(
+                                      color: Colors.black26,
+                                      blurRadius: 2,
+                                      offset: Offset(0, 1),
+                                    )
+                                  ],
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      station.name,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 7.5,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    Text(
+                                      price != null ? '${price.toStringAsFixed(2)}€' : 'RPT',
+                                      style: TextStyle(
+                                        color: color == Colors.red
+                                            ? Colors.redAccent
+                                            : (color == Colors.green ? Colors.lightGreenAccent : Colors.white70),
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        fontFamily: 'monospace',
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ],
                 ),
               ],
             ),
@@ -354,7 +450,7 @@ class _MapScreenState extends State<MapScreen> {
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _determinePosition,
+        onPressed: _centerOnUser,
         child: const Icon(Icons.my_location),
       ),
     );
