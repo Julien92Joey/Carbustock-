@@ -454,9 +454,11 @@ class _MapScreenState extends State<MapScreen> {
               ),
               children: [
                 TileLayer(
-                  // Fond de carte CartoDB Positron sans filigrane ni clé requise
-                  urlTemplate: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-                  subdomains: const ['a', 'b', 'c', 'd'],
+  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  userAgentPackageName: 'com.example.carbustock',
+),
+                
+          
                 ),
                 MarkerLayer(
                   markers: [
