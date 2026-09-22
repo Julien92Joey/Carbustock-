@@ -39,6 +39,7 @@ class _MapScreenState extends State<MapScreen> {
   String _selectedFuel = 'E10';
   final MapController _mapController = MapController();
 
+  // Centre de l'Île-de-France par défaut (Paris)
   LatLng _currentCenter = const LatLng(48.8566, 2.3522);
   bool _isLoadingLocation = false;
   bool _isLoadingStations = false;
@@ -56,7 +57,7 @@ class _MapScreenState extends State<MapScreen> {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       if (mounted) setState(() => _isLoadingLocation = false);
-      _fetchStations();
+      _fetchIDFStations();
       return;
     }
 
@@ -65,14 +66,14 @@ class _MapScreenState extends State<MapScreen> {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
         if (mounted) setState(() => _isLoadingLocation = false);
-        _fetchStations();
+        _fetchIDFStations();
         return;
       }
     }
 
     if (permission == LocationPermission.deniedForever) {
       if (mounted) setState(() => _isLoadingLocation = false);
-      _fetchStations();
+      _fetchIDFStations();
       return;
     }
 
@@ -86,21 +87,22 @@ class _MapScreenState extends State<MapScreen> {
           _currentCenter = LatLng(position.latitude, position.longitude);
           _isLoadingLocation = false;
         });
-        _mapController.move(_currentCenter, 13.0);
+        _mapController.move(_currentCenter, 11.0);
       }
     } catch (e) {
       if (mounted) setState(() => _isLoadingLocation = false);
     }
 
-    _fetchStations();
+    _fetchIDFStations();
   }
 
-  Future<void> _fetchStations() async {
+  Future<void> _fetchIDFStations() async {
     if (!mounted) return;
     setState(() => _isLoadingStations = true);
 
+    // Requête filtrée uniquement sur l'Île-de-France (jusqu'à 1000 stations)
     final url = Uri.parse(
-      'https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records?where=within_distance(geom%2C%20GEOM%27POINT(${_currentCenter.longitude}%20${_currentCenter.latitude})%27%2C%2020km)&limit=50',
+      'https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records?where=region%3D%22%C3%8Ele-de-France%22&limit=1000',
     );
 
     try {
@@ -116,7 +118,13 @@ class _MapScreenState extends State<MapScreen> {
 
           final double lat = (geom['lat'] as num).toDouble();
           final double lon = (geom['lon'] as num).toDouble();
-          final String name = item['nom'] ?? item['adresse'] ?? 'Station Carburant';
+
+          // Récupération du nom de l'enseigne (Total, Leclerc, Esso, etc.)
+          String brandName = item['brand'] ?? item['pop'] ?? item['nom'] ?? 'Station Carburant';
+          if (brandName.trim().isEmpty || brandName == 'R') {
+            brandName = 'Station Carburant';
+          }
+
           final String address = item['adresse'] ?? '';
           final String city = item['ville'] ?? '';
 
@@ -141,7 +149,7 @@ class _MapScreenState extends State<MapScreen> {
 
           loadedStations.add(Station(
             id: item['id']?.toString() ?? UniqueKey().toString(),
-            name: name,
+            name: brandName,
             address: '$address $city'.trim(),
             latitude: lat,
             longitude: lon,
@@ -178,7 +186,7 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('CarbuStock - Carte'),
+        title: const Text('CarbuStock - ÎdF'),
         backgroundColor: Colors.blue,
         foregroundColor: Colors.white,
         actions: [
@@ -203,7 +211,7 @@ class _MapScreenState extends State<MapScreen> {
               }
             },
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 12),
         ],
       ),
       body: SizedBox.expand(
@@ -213,7 +221,7 @@ class _MapScreenState extends State<MapScreen> {
               mapController: _mapController,
               options: MapOptions(
                 initialCenter: _currentCenter,
-                initialZoom: 13.0,
+                initialZoom: 10.5,
               ),
               children: [
                 TileLayer(
@@ -226,8 +234,8 @@ class _MapScreenState extends State<MapScreen> {
                     final price = station.prices[_selectedFuel];
                     return Marker(
                       point: LatLng(station.latitude, station.longitude),
-                      width: 70,
-                      height: 70,
+                      width: 90,
+                      height: 75,
                       child: GestureDetector(
                         onTap: () {
                           showModalBottomSheet(
@@ -259,6 +267,22 @@ class _MapScreenState extends State<MapScreen> {
                         },
                         child: Column(
                           children: [
+                            // Enseigne de la station (Total, Leclerc, etc.)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: Colors.black87,
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                              child: Text(
+                                station.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                            const SizedBox(height: 1),
+                            // Prix du carburant
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                               decoration: BoxDecoration(
@@ -270,7 +294,7 @@ class _MapScreenState extends State<MapScreen> {
                                 style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
                               ),
                             ),
-                            Icon(Icons.location_on, color: color, size: 36),
+                            Icon(Icons.location_on, color: color, size: 28),
                           ],
                         ),
                       ),
@@ -296,8 +320,8 @@ class _MapScreenState extends State<MapScreen> {
                         ),
                         const SizedBox(width: 8),
                         Text(_isLoadingLocation
-                            ? 'Recherche de la position...'
-                            : 'Chargement des stations...'),
+                            ? 'Position...'
+                            : 'Chargement des stations ÎdeF...'),
                       ],
                     ),
                   ),
