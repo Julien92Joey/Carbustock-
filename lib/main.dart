@@ -454,8 +454,8 @@ class _MapScreenState extends State<MapScreen> {
               ),
               children: [
                 TileLayer(
-                  // Fond de carte CartoDB Positron : propre, moderne, ultra-lisible, gris/blanc sans look "à l'ancienne"
-                  urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+                  // Fond de carte CartoDB Positron sans filigrane ni clé requise
+                  urlTemplate: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
                   subdomains: const ['a', 'b', 'c', 'd'],
                 ),
                 MarkerLayer(
