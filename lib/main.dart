@@ -20,12 +20,12 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'CarbuStock',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData.dark().copyWith(
+      theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: Colors.blueAccent,
-          brightness: Brightness.dark,
+          brightness: Brightness.light,
         ),
-        scaffoldBackgroundColor: const Color(0xFF0F172A),
+        useMaterial3: true,
       ),
       home: const MapScreen(),
     );
@@ -283,7 +283,7 @@ class _MapScreenState extends State<MapScreen> {
 
   Color _getMarkerColor(Station station) {
     if (station.shortages.contains(_selectedFuel)) {
-      return Colors.redAccent;
+      return Colors.red;
     } else if (station.prices.containsKey(_selectedFuel)) {
       return const Color(0xFF10B981);
     }
@@ -303,9 +303,8 @@ class _MapScreenState extends State<MapScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF1E293B),
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (_) => Padding(
         padding: const EdgeInsets.all(20.0),
@@ -317,9 +316,9 @@ class _MapScreenState extends State<MapScreen> {
               child: Container(
                 width: 40,
                 height: 4,
-                margin: const EdgeInsets.only(bottom: 16),
+                margin: const EdgeInsets.only(bottom: 12),
                 decoration: BoxDecoration(
-                  color: Colors.grey[600],
+                  color: Colors.grey[300],
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -331,7 +330,7 @@ class _MapScreenState extends State<MapScreen> {
                 Expanded(
                   child: Text(
                     station.name,
-                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
@@ -339,17 +338,17 @@ class _MapScreenState extends State<MapScreen> {
             const SizedBox(height: 4),
             Text(
               station.address,
-              style: TextStyle(color: Colors.grey[400], fontSize: 13),
+              style: TextStyle(color: Colors.grey[700], fontSize: 13),
             ),
             const SizedBox(height: 16),
 
             if (price != null)
               Container(
-                padding: const EdgeInsets.all(14),
+                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF0F172A),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.blueAccent.withOpacity(0.3)),
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.blue.shade200),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -359,14 +358,14 @@ class _MapScreenState extends State<MapScreen> {
                       children: [
                         Text(
                           'Coût du plein ($_tankCapacity L) :',
-                          style: TextStyle(color: Colors.grey[300], fontWeight: FontWeight.w500),
+                          style: TextStyle(color: Colors.blue.shade900, fontWeight: FontWeight.w500),
                         ),
                         Text(
                           '${(price * _tankCapacity).toStringAsFixed(2)} €',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.bold,
-                            color: Colors.blueAccent,
+                            color: Colors.blue.shade900,
                           ),
                         ),
                       ],
@@ -394,13 +393,13 @@ class _MapScreenState extends State<MapScreen> {
             const SizedBox(height: 16),
             const Text(
               'Prix des carburants',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Container(
               decoration: BoxDecoration(
-                color: const Color(0xFF0F172A),
-                borderRadius: BorderRadius.circular(12),
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(10),
               ),
               child: Column(
                 children: allFuels.map((fuel) {
@@ -408,7 +407,7 @@ class _MapScreenState extends State<MapScreen> {
                   final isShort = station.shortages.contains(fuel);
 
                   return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -416,7 +415,7 @@ class _MapScreenState extends State<MapScreen> {
                           fuel,
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
-                            color: fuel == _selectedFuel ? Colors.blueAccent : Colors.white70,
+                            color: fuel == _selectedFuel ? Colors.blueAccent : Colors.black87,
                           ),
                         ),
                         if (fuelPrice != null)
@@ -432,14 +431,14 @@ class _MapScreenState extends State<MapScreen> {
                           const Text(
                             'Rupture',
                             style: TextStyle(
-                              color: Colors.redAccent,
+                              color: Colors.red,
                               fontWeight: FontWeight.bold,
                             ),
                           )
                         else
                           Text(
                             'Non dispo',
-                            style: TextStyle(color: Colors.grey[600]),
+                            style: TextStyle(color: Colors.grey[500]),
                           ),
                       ],
                     ),
@@ -456,7 +455,7 @@ class _MapScreenState extends State<MapScreen> {
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                 ),
                 onPressed: () {
@@ -481,15 +480,15 @@ class _MapScreenState extends State<MapScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('CarbuStock - ÎdF'),
-        backgroundColor: const Color(0xFF0F172A),
+        backgroundColor: const Color(0xFF1F2937),
         foregroundColor: Colors.white,
-        elevation: 0,
+        elevation: 2,
         actions: [
           DropdownButton<int>(
             value: _tankCapacity,
             underline: const SizedBox(),
             icon: const Icon(Icons.tune, color: Colors.white, size: 18),
-            dropdownColor: const Color(0xFF1E293B),
+            dropdownColor: const Color(0xFF1F2937),
             style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
             items: <int>[30, 40, 50, 60, 70].map<DropdownMenuItem<int>>((int value) {
               return DropdownMenuItem<int>(
@@ -508,7 +507,7 @@ class _MapScreenState extends State<MapScreen> {
             value: _selectedFuel,
             underline: const SizedBox(),
             icon: const Icon(Icons.local_gas_station, color: Colors.white),
-            dropdownColor: const Color(0xFF1E293B),
+            dropdownColor: const Color(0xFF1F2937),
             style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
             items: <String>['E10', 'E5', 'SP98', 'GAZOLE', 'GPLC', 'E85']
                 .map<DropdownMenuItem<String>>((String value) {
@@ -538,9 +537,9 @@ class _MapScreenState extends State<MapScreen> {
                 initialZoom: 12.0,
               ),
               children: [
-                // Tuiles sombres ultra fluides et modernes sans filigrane
+                // Tuiles OpenStreetMap Humanitaire : très lisibles et 100% gratuites sans filigrane
                 TileLayer(
-                  urlTemplate: 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+                  urlTemplate: 'https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
                   userAgentPackageName: 'com.example.carbustock',
                 ),
                 MarkerLayer(
@@ -552,7 +551,7 @@ class _MapScreenState extends State<MapScreen> {
                         height: 24,
                         child: Container(
                           decoration: BoxDecoration(
-                            color: Colors.blueAccent.withOpacity(0.3),
+                            color: Colors.blueAccent.withOpacity(0.25),
                             shape: BoxShape.circle,
                             border: Border.all(color: Colors.blueAccent, width: 2),
                           ),
@@ -565,8 +564,8 @@ class _MapScreenState extends State<MapScreen> {
                                 shape: BoxShape.circle,
                                 boxShadow: [
                                   BoxShadow(
-                                    color: Colors.black38,
-                                    blurRadius: 4,
+                                    color: Colors.black26,
+                                    blurRadius: 3,
                                   ),
                                 ],
                               ),
@@ -587,15 +586,15 @@ class _MapScreenState extends State<MapScreen> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
+                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF0F172A),
+                                  color: const Color(0xFF111827),
                                   borderRadius: BorderRadius.circular(6),
                                   border: Border.all(color: color, width: 1.5),
                                   boxShadow: const [
                                     BoxShadow(
-                                      color: Colors.black54,
-                                      blurRadius: 4,
+                                      color: Colors.black38,
+                                      blurRadius: 3,
                                       offset: Offset(0, 2),
                                     )
                                   ],
@@ -616,7 +615,7 @@ class _MapScreenState extends State<MapScreen> {
                                     Text(
                                       price != null ? '${price.toStringAsFixed(2)}€' : 'RPT',
                                       style: TextStyle(
-                                        color: color == Colors.redAccent
+                                        color: color == Colors.red
                                             ? Colors.redAccent
                                             : (color == const Color(0xFF10B981)
                                                 ? const Color(0xFF34D399)
@@ -647,7 +646,7 @@ class _MapScreenState extends State<MapScreen> {
                 onPressed: _findCheapestNearbyStation,
                 backgroundColor: const Color(0xFF10B981),
                 foregroundColor: Colors.white,
-                elevation: 6,
+                elevation: 4,
                 icon: const Icon(Icons.bolt),
                 label: const Text('MOINS CHÈRE (< 5KM)', style: TextStyle(fontWeight: FontWeight.bold)),
               ),
@@ -658,8 +657,7 @@ class _MapScreenState extends State<MapScreen> {
                 top: 16,
                 left: 16,
                 child: Card(
-                  elevation: 6,
-                  color: const Color(0xFF1E293B),
+                  elevation: 4,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   child: Padding(
                     padding: const EdgeInsets.all(10.0),
@@ -668,14 +666,14 @@ class _MapScreenState extends State<MapScreen> {
                         const SizedBox(
                           width: 16,
                           height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blueAccent),
+                          child: CircularProgressIndicator(strokeWidth: 2),
                         ),
                         const SizedBox(width: 8),
                         Text(
                           _isLoadingLocation
                               ? 'Position GPS...'
                               : 'Chargement des stations ÎdeF...',
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: Colors.white),
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
                         ),
                       ],
                     ),
@@ -688,7 +686,7 @@ class _MapScreenState extends State<MapScreen> {
       floatingActionButton: FloatingActionButton(
         heroTag: 'btn_location',
         onPressed: _centerOnUser,
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: const Color(0xFF1F2937),
         foregroundColor: Colors.white,
         child: const Icon(Icons.my_location),
       ),
