@@ -240,6 +240,134 @@ class _MapScreenState extends State<MapScreen> {
     return Colors.grey;
   }
 
+  void _showStationDetails(Station station) {
+    final allFuels = ['GAZOLE', 'E10', 'SP98', 'E5', 'E85', 'GPLC'];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Row(
+              children: [
+                const Icon(Icons.local_gas_station, color: Colors.blue, size: 28),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    station.name,
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              station.address,
+              style: TextStyle(color: Colors.grey[700], fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Prix des carburants',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                children: allFuels.map((fuel) {
+                  final price = station.prices[fuel];
+                  final isShort = station.shortages.contains(fuel);
+
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          fuel,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: fuel == _selectedFuel ? Colors.blue : Colors.black87,
+                          ),
+                        ),
+                        if (price != null)
+                          Text(
+                            '${price.toStringAsFixed(3)} €/L',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.green,
+                              fontSize: 15,
+                            ),
+                          )
+                        else if (isShort)
+                          const Text(
+                            'Rupture',
+                            style: TextStyle(
+                              color: Colors.red,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          )
+                        else
+                          Text(
+                            'Non dispo',
+                            style: TextStyle(color: Colors.grey[500]),
+                          ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                onPressed: () {
+                  Navigator.pop(context);
+                  _openNavigation(station.latitude, station.longitude);
+                },
+                icon: const Icon(Icons.navigation),
+                label: const Text(
+                  'LANCER L\'ITINÉRAIRE (GPS)',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -325,51 +453,7 @@ class _MapScreenState extends State<MapScreen> {
                         width: 76,
                         height: 48,
                         child: GestureDetector(
-                          onTap: () {
-                            showModalBottomSheet(
-                              context: context,
-                              builder: (_) => Padding(
-                                padding: const EdgeInsets.all(16.0),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(station.name, style: Theme.of(context).textTheme.titleLarge),
-                                    const SizedBox(height: 4),
-                                    Text(station.address),
-                                    const SizedBox(height: 12),
-                                    Text(
-                                      price != null
-                                          ? 'Prix $_selectedFuel : ${price.toStringAsFixed(3)} €/L'
-                                          : 'Carburant $_selectedFuel non disponible ou en rupture.',
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                        color: color == Colors.red ? Colors.red : Colors.green,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 16),
-                                    SizedBox(
-                                      width: double.infinity,
-                                      child: ElevatedButton.icon(
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.blue,
-                                          foregroundColor: Colors.white,
-                                          padding: const EdgeInsets.symmetric(vertical: 12),
-                                        ),
-                                        onPressed: () {
-                                          Navigator.pop(context);
-                                          _openNavigation(station.latitude, station.longitude);
-                                        },
-                                        icon: const Icon(Icons.navigation),
-                                        label: const Text('Y ALLER (GPS)', style: TextStyle(fontWeight: FontWeight.bold)),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
+                          onTap: () => _showStationDetails(station),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
