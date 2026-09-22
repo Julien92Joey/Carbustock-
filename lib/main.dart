@@ -104,7 +104,6 @@ class _MapScreenState extends State<MapScreen> {
       if (mounted) setState(() => _isLoadingLocation = false);
     }
 
-    // Suivi continu en temps réel
     const locationSettings = LocationSettings(
       accuracy: LocationAccuracy.high,
       distanceFilter: 10,
@@ -221,9 +220,13 @@ class _MapScreenState extends State<MapScreen> {
     final uri = Uri.parse('google.navigation:q=$lat,$lng');
     final fallbackUri = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$lat,$lng');
 
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
-    } else if (await canLaunchUrl(fallbackUri)) {
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+      } else {
+        await launchUrl(fallbackUri, mode: LaunchMode.externalApplication);
+      }
+    } catch (_) {
       await launchUrl(fallbackUri, mode: LaunchMode.externalApplication);
     }
   }
@@ -285,7 +288,6 @@ class _MapScreenState extends State<MapScreen> {
                 ),
                 MarkerLayer(
                   markers: [
-                    // Repère de localisation de l'utilisateur
                     if (_userLocation != null)
                       Marker(
                         point: _userLocation!,
@@ -315,7 +317,6 @@ class _MapScreenState extends State<MapScreen> {
                           ),
                         ),
                       ),
-                    // Marqueurs des stations de service
                     ..._stations.map((station) {
                       final color = _getMarkerColor(station);
                       final price = station.prices[_selectedFuel];
