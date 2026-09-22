@@ -100,16 +100,15 @@ class _MapScreenState extends State<MapScreen> {
     if (!mounted) return;
     setState(() => _isLoadingStations = true);
 
-    // Requête filtrée uniquement sur l'Île-de-France (jusqu'à 1000 stations)
+    // Requête sans limite de 100 via /exports/json
     final url = Uri.parse(
-      'https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records?where=region%3D%22%C3%8Ele-de-France%22&limit=1000',
+      'https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/exports/json?where=region%3D%22%C3%8Ele-de-France%22',
     );
 
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final results = data['results'] as List<dynamic>? ?? [];
+        final results = json.decode(response.body) as List<dynamic>;
 
         final List<Station> loadedStations = [];
         for (final item in results) {
@@ -119,14 +118,14 @@ class _MapScreenState extends State<MapScreen> {
           final double lat = (geom['lat'] as num).toDouble();
           final double lon = (geom['lon'] as num).toDouble();
 
-          // Récupération du nom de l'enseigne (Total, Leclerc, Esso, etc.)
-          String brandName = item['brand'] ?? item['pop'] ?? item['nom'] ?? 'Station Carburant';
+          // Récupération de l'enseigne de la station
+          String brandName = item['brand']?.toString() ?? item['pop']?.toString() ?? item['nom']?.toString() ?? 'Station';
           if (brandName.trim().isEmpty || brandName == 'R') {
-            brandName = 'Station Carburant';
+            brandName = 'Station';
           }
 
-          final String address = item['adresse'] ?? '';
-          final String city = item['ville'] ?? '';
+          final String address = item['adresse']?.toString() ?? '';
+          final String city = item['ville']?.toString() ?? '';
 
           final Map<String, double> prices = {};
           final List<String> short = [];
@@ -234,8 +233,8 @@ class _MapScreenState extends State<MapScreen> {
                     final price = station.prices[_selectedFuel];
                     return Marker(
                       point: LatLng(station.latitude, station.longitude),
-                      width: 90,
-                      height: 75,
+                      width: 95,
+                      height: 70,
                       child: GestureDetector(
                         onTap: () {
                           showModalBottomSheet(
@@ -267,34 +266,66 @@ class _MapScreenState extends State<MapScreen> {
                         },
                         child: Column(
                           children: [
-                            // Enseigne de la station (Total, Leclerc, etc.)
+                            // Panneau Totem Station Essence
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                               decoration: BoxDecoration(
-                                color: Colors.black87,
-                                borderRadius: BorderRadius.circular(3),
+                                color: const Color(0xFF1E1E1E),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: color, width: 2),
+                                boxShadow: const [
+                                  BoxShadow(
+                                    color: Colors.black38,
+                                    blurRadius: 4,
+                                    offset: Offset(0, 2),
+                                  )
+                                ],
                               ),
-                              child: Text(
-                                station.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  // Nom de l'enseigne
+                                  Text(
+                                    station.name.toUpperCase(),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 8.5,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  const Divider(color: Colors.white24, height: 2, thickness: 1),
+                                  const SizedBox(height: 2),
+                                  // Prix affiché style panneau d'affichage
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.local_gas_station, color: color, size: 11),
+                                      const SizedBox(width: 3),
+                                      Text(
+                                        price != null ? '${price.toStringAsFixed(2)}€' : 'RPT',
+                                        style: TextStyle(
+                                          color: color == Colors.red
+                                              ? Colors.redAccent
+                                              : (color == Colors.green ? Colors.lightGreenAccent : Colors.white70),
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          fontFamily: 'monospace',
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                               ),
                             ),
-                            const SizedBox(height: 1),
-                            // Prix du carburant
+                            // Pied du totem
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: color,
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                price != null ? '${price.toStringAsFixed(2)}€' : 'N/A',
-                                style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                              ),
+                              width: 3,
+                              height: 8,
+                              color: Colors.grey[700],
                             ),
-                            Icon(Icons.location_on, color: color, size: 28),
                           ],
                         ),
                       ),
@@ -320,7 +351,7 @@ class _MapScreenState extends State<MapScreen> {
                         ),
                         const SizedBox(width: 8),
                         Text(_isLoadingLocation
-                            ? 'Position...'
+                            ? 'Position GPS...'
                             : 'Chargement des stations ÎdeF...'),
                       ],
                     ),
