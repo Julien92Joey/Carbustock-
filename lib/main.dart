@@ -39,7 +39,7 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> {
   final List<Station> _stations = [];
   String _selectedFuel = 'E10';
-  int _tankCapacity = 50; // Capacité du réservoir par défaut en Litres
+  int _tankCapacity = 50;
   final MapController _mapController = MapController();
 
   LatLng _currentCenter = const LatLng(48.8878, 2.1807); // Rueil-Malmaison par défaut
@@ -217,41 +217,34 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  // Trouve la station la moins chère dans un rayon de 5 km (ou 10 km max si besoin)
   void _findCheapestNearbyStation() {
     final center = _userLocation ?? _currentCenter;
 
-    // Filtrer les stations avec carburant dispo
     final available = _stations.where((s) =>
         s.prices.containsKey(_selectedFuel) &&
         !s.shortages.contains(_selectedFuel)).toList();
 
     if (available.isEmpty) return;
 
-    // Tri par distance depuis l'utilisateur
-    available.forEach((s) {
+    for (var s in available) {
       s.distance = Geolocator.distanceBetween(
         center.latitude,
         center.longitude,
         s.latitude,
         s.longitude,
       );
-    });
+    }
 
-    // Chercher d'abord à moins de 5km (5000 mètres)
     var nearby = available.where((s) => s.distance! <= 5000).toList();
 
-    // Si aucune à 5km, élargir à 10km
     if (nearby.isEmpty) {
       nearby = available.where((s) => s.distance! <= 10000).toList();
     }
 
-    // Si toujours aucune, prendre la plus proche globale
     if (nearby.isEmpty) {
       nearby = available;
     }
 
-    // Trier les stations sélectionnées par prix du carburant
     nearby.sort((a, b) => a.prices[_selectedFuel]!.compareTo(b.prices[_selectedFuel]!));
 
     final cheapest = nearby.first;
@@ -346,7 +339,6 @@ class _MapScreenState extends State<MapScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Estimation du plein
             if (price != null)
               Container(
                 padding: const EdgeInsets.all(12),
@@ -489,7 +481,6 @@ class _MapScreenState extends State<MapScreen> {
         foregroundColor: Colors.white,
         elevation: 2,
         actions: [
-          // Choix Réservoir
           DropdownButton<int>(
             value: _tankCapacity,
             underline: const SizedBox(),
@@ -509,7 +500,6 @@ class _MapScreenState extends State<MapScreen> {
             },
           ),
           const SizedBox(width: 8),
-          // Choix Carburant
           DropdownButton<String>(
             value: _selectedFuel,
             underline: const SizedBox(),
@@ -544,10 +534,9 @@ class _MapScreenState extends State<MapScreen> {
                 initialZoom: 12.0,
               ),
               children: [
-                // Tuiles style moderne clair (CartoDB Positron)
+                // Tuiles OpenStreetMap HD / Carto gratuit sans clé API
                 TileLayer(
-                  urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
-                  subdomains: const ['a', 'b', 'c', 'd'],
+                  urlTemplate: 'https://tile.openstreetmap.de/{z}/{x}/{y}.png',
                   userAgentPackageName: 'com.example.carbustock',
                 ),
                 MarkerLayer(
@@ -644,7 +633,6 @@ class _MapScreenState extends State<MapScreen> {
               ],
             ),
 
-            // Bouton Moins Chère dans un rayon de 5 km
             Positioned(
               bottom: 20,
               left: 16,
