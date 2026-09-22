@@ -96,11 +96,26 @@ class _MapScreenState extends State<MapScreen> {
     _fetchIDFStations();
   }
 
+  String _extractBrandName(String address, String city) {
+    final String fullText = '$address $city'.toUpperCase();
+    final brands = [
+      'TOTAL', 'TOTALACCESS', 'LECLERC', 'E.LECLERC', 'INTERMARCHE',
+      'CARREFOUR', 'BP', 'ESSO', 'SHELL', 'AUCHAN', 'CASINO', 'CORA',
+      'SYSTEME U', 'SUPER U', 'HYPER U', 'AVIA', 'NETTO', 'AGIP', 'DINETT'
+    ];
+
+    for (final b in brands) {
+      if (fullText.contains(b)) {
+        return b;
+      }
+    }
+    return city.isNotEmpty ? city.toUpperCase() : 'STATION';
+  }
+
   Future<void> _fetchIDFStations() async {
     if (!mounted) return;
     setState(() => _isLoadingStations = true);
 
-    // Requête sans limite de 100 via /exports/json
     final url = Uri.parse(
       'https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/exports/json?where=region%3D%22%C3%8Ele-de-France%22',
     );
@@ -118,14 +133,9 @@ class _MapScreenState extends State<MapScreen> {
           final double lat = (geom['lat'] as num).toDouble();
           final double lon = (geom['lon'] as num).toDouble();
 
-          // Récupération de l'enseigne de la station
-          String brandName = item['brand']?.toString() ?? item['pop']?.toString() ?? item['nom']?.toString() ?? 'Station';
-          if (brandName.trim().isEmpty || brandName == 'R') {
-            brandName = 'Station';
-          }
-
           final String address = item['adresse']?.toString() ?? '';
           final String city = item['ville']?.toString() ?? '';
+          final String brandName = _extractBrandName(address, city);
 
           final Map<String, double> prices = {};
           final List<String> short = [];
@@ -233,8 +243,8 @@ class _MapScreenState extends State<MapScreen> {
                     final price = station.prices[_selectedFuel];
                     return Marker(
                       point: LatLng(station.latitude, station.longitude),
-                      width: 95,
-                      height: 70,
+                      width: 76,
+                      height: 48,
                       child: GestureDetector(
                         onTap: () {
                           showModalBottomSheet(
@@ -265,66 +275,48 @@ class _MapScreenState extends State<MapScreen> {
                           );
                         },
                         child: Column(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            // Panneau Totem Station Essence
                             Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                               decoration: BoxDecoration(
                                 color: const Color(0xFF1E1E1E),
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: color, width: 2),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: color, width: 1.5),
                                 boxShadow: const [
                                   BoxShadow(
-                                    color: Colors.black38,
-                                    blurRadius: 4,
-                                    offset: Offset(0, 2),
+                                    color: Colors.black26,
+                                    blurRadius: 2,
+                                    offset: Offset(0, 1),
                                   )
                                 ],
                               ),
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  // Nom de l'enseigne
                                   Text(
-                                    station.name.toUpperCase(),
+                                    station.name,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
                                       color: Colors.white,
-                                      fontSize: 8.5,
+                                      fontSize: 7.5,
                                       fontWeight: FontWeight.bold,
                                     ),
                                   ),
-                                  const SizedBox(height: 2),
-                                  const Divider(color: Colors.white24, height: 2, thickness: 1),
-                                  const SizedBox(height: 2),
-                                  // Prix affiché style panneau d'affichage
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(Icons.local_gas_station, color: color, size: 11),
-                                      const SizedBox(width: 3),
-                                      Text(
-                                        price != null ? '${price.toStringAsFixed(2)}€' : 'RPT',
-                                        style: TextStyle(
-                                          color: color == Colors.red
-                                              ? Colors.redAccent
-                                              : (color == Colors.green ? Colors.lightGreenAccent : Colors.white70),
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.bold,
-                                          fontFamily: 'monospace',
-                                        ),
-                                      ),
-                                    ],
+                                  Text(
+                                    price != null ? '${price.toStringAsFixed(2)}€' : 'RPT',
+                                    style: TextStyle(
+                                      color: color == Colors.red
+                                          ? Colors.redAccent
+                                          : (color == Colors.green ? Colors.lightGreenAccent : Colors.white70),
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'monospace',
+                                    ),
                                   ),
                                 ],
                               ),
-                            ),
-                            // Pied du totem
-                            Container(
-                              width: 3,
-                              height: 8,
-                              color: Colors.grey[700],
                             ),
                           ],
                         ),
