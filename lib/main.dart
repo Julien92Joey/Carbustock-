@@ -39,6 +39,7 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> {
   final List<Station> _stations = [];
   String _selectedFuel = 'E10';
+  int _tankCapacity = 50; // Capacité du réservoir par défaut en Litres
   final MapController _mapController = MapController();
 
   LatLng _currentCenter = const LatLng(48.8566, 2.3522);
@@ -216,6 +217,28 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  // Trouve la station disponible la moins chère autour
+  void _findCheapestStation() {
+    final available = _stations.where((s) => s.prices.containsKey(_selectedFuel) && !s.shortages.contains(_selectedFuel)).toList();
+    if (available.isEmpty) return;
+
+    available.sort((a, b) => a.prices[_selectedFuel]!.compareTo(b.prices[_selectedFuel]!));
+    final cheapest = available.first;
+
+    _mapController.move(LatLng(cheapest.latitude, cheapest.longitude), 14.5);
+    _showStationDetails(cheapest);
+  }
+
+  double _calculateAveragePrice() {
+    final validPrices = _stations
+        .where((s) => s.prices.containsKey(_selectedFuel) && !s.shortages.contains(_selectedFuel))
+        .map((s) => s.prices[_selectedFuel]!)
+        .toList();
+
+    if (validPrices.isEmpty) return 0.0;
+    return validPrices.reduce((a, b) => a + b) / validPrices.length;
+  }
+
   Future<void> _openNavigation(double lat, double lng) async {
     final uri = Uri.parse('google.navigation:q=$lat,$lng');
     final fallbackUri = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$lat,$lng');
@@ -242,6 +265,13 @@ class _MapScreenState extends State<MapScreen> {
 
   void _showStationDetails(Station station) {
     final allFuels = ['GAZOLE', 'E10', 'SP98', 'E5', 'E85', 'GPLC'];
+    final price = station.prices[_selectedFuel];
+    final avgPrice = _calculateAveragePrice();
+
+    double savings = 0.0;
+    if (price != null && avgPrice > 0) {
+      savings = (avgPrice - price) * _tankCapacity;
+    }
 
     showModalBottomSheet(
       context: context,
@@ -284,6 +314,57 @@ class _MapScreenState extends State<MapScreen> {
               style: TextStyle(color: Colors.grey[700], fontSize: 13),
             ),
             const SizedBox(height: 16),
+
+            // Bloc Estimation du Plein
+            if (price != null)
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Coût du plein ($_tankCapacity L) :',
+                          style: TextStyle(color: Colors.blue.shade900, fontWeight: FontWeight.w500),
+                        ),
+                        Text(
+                          '${(price * _tankCapacity).toStringAsFixed(2)} €',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue.shade900,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (savings > 0)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.green,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          '-${savings.toStringAsFixed(2)} €',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+
+            const SizedBox(height: 16),
             const Text(
               'Prix des carburants',
               style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
@@ -296,7 +377,7 @@ class _MapScreenState extends State<MapScreen> {
               ),
               child: Column(
                 children: allFuels.map((fuel) {
-                  final price = station.prices[fuel];
+                  final fuelPrice = station.prices[fuel];
                   final isShort = station.shortages.contains(fuel);
 
                   return Padding(
@@ -311,9 +392,9 @@ class _MapScreenState extends State<MapScreen> {
                             color: fuel == _selectedFuel ? Colors.blue : Colors.black87,
                           ),
                         ),
-                        if (price != null)
+                        if (fuelPrice != null)
                           Text(
-                            '${price.toStringAsFixed(3)} €/L',
+                            '${fuelPrice.toStringAsFixed(3)} €/L',
                             style: const TextStyle(
                               fontWeight: FontWeight.bold,
                               color: Colors.green,
@@ -376,6 +457,27 @@ class _MapScreenState extends State<MapScreen> {
         backgroundColor: Colors.blue,
         foregroundColor: Colors.white,
         actions: [
+          // Choix Réservoir
+          DropdownButton<int>(
+            value: _tankCapacity,
+            underline: const SizedBox(),
+            icon: const Icon(Icons.tune, color: Colors.white, size: 20),
+            dropdownColor: Colors.blue,
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            items: <int>[30, 40, 50, 60, 70].map<DropdownMenuItem<int>>((int value) {
+              return DropdownMenuItem<int>(
+                value: value,
+                child: Text('${value}L', style: const TextStyle(color: Colors.black)),
+              );
+            }).toList(),
+            onChanged: (int? newValue) {
+              if (newValue != null) {
+                setState(() => _tankCapacity = newValue);
+              }
+            },
+          ),
+          const SizedBox(width: 8),
+          // Choix Carburant
           DropdownButton<String>(
             value: _selectedFuel,
             underline: const SizedBox(),
@@ -507,6 +609,21 @@ class _MapScreenState extends State<MapScreen> {
                 ),
               ],
             ),
+
+            // Bouton Moins Chère Instantané (Éclair)
+            Positioned(
+              bottom: 16,
+              left: 16,
+              child: FloatingActionButton.extended(
+                heroTag: 'btn_cheapest',
+                onPressed: _findCheapestStation,
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+                icon: const Icon(Icons.bolt),
+                label: const Text('MOINS CHÈRE', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ),
+
             if (_isLoadingLocation || _isLoadingStations)
               Positioned(
                 top: 16,
@@ -535,6 +652,7 @@ class _MapScreenState extends State<MapScreen> {
         ),
       ),
       floatingActionButton: FloatingActionButton(
+        heroTag: 'btn_location',
         onPressed: _centerOnUser,
         child: const Icon(Icons.my_location),
       ),
