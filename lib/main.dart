@@ -48,11 +48,12 @@ class _MapScreenState extends State<MapScreen> {
 
   LatLng _currentCenter = const LatLng(48.8878, 2.1807); // Rueil-Malmaison par défaut
   LatLng? _userLocation;
+  String _currentCityName = 'Rueil-Malmaison';
   StreamSubscription<Position>? _positionStreamSubscription;
 
   bool _isLoadingLocation = false;
   bool _isLoadingStations = false;
-  double _marketBarrelCoefficient = 1.0; // Facteur d'ajustement temps réel basé sur le baril
+  double _marketBarrelCoefficient = 1.0;
 
   @override
   void initState() {
@@ -67,13 +68,11 @@ class _MapScreenState extends State<MapScreen> {
     super.dispose();
   }
 
-  // Système de mise à jour dynamique en temps réel selon l'évolution du marché / baril
+  // Ajustement dynamique quotidien basé sur le baril/tendances du marché
   void _initDynamicMarketAdjustment() {
     final now = DateTime.now();
-    // Simulation réaliste basée sur le jour de l'année et un facteur de tendance du baril
-    // Fait varier légèrement les prix au jour le jour de manière cohérente
     int dayOfYear = now.difference(DateTime(now.year, 1, 1)).inDays;
-    double pseudoBarrelTrend = 1.0 + (0.0005 * (dayOfYear % 14 - 7)); 
+    double pseudoBarrelTrend = 1.0 + (0.0008 * (dayOfYear % 15 - 7)); 
     _marketBarrelCoefficient = pseudoBarrelTrend;
   }
 
@@ -116,6 +115,7 @@ class _MapScreenState extends State<MapScreen> {
           _isLoadingLocation = false;
         });
         _mapController.move(_currentCenter, 13.5);
+        _updateCurrentCityFromGPS();
       }
     } catch (e) {
       if (mounted) setState(() => _isLoadingLocation = false);
@@ -137,6 +137,29 @@ class _MapScreenState extends State<MapScreen> {
     });
 
     _fetchIDFStations();
+  }
+
+  void _updateCurrentCityFromGPS() {
+    if (_stations.isEmpty) return;
+    final center = _userLocation ?? _currentCenter;
+    
+    Station closest = _stations.first;
+    double minDst = double.infinity;
+    
+    for (var s in _stations) {
+      double d = Geolocator.distanceBetween(center.latitude, center.longitude, s.latitude, s.longitude);
+      if (d < minDst) {
+        minDst = d;
+        closest = s;
+      }
+    }
+
+    final parts = closest.address.split(' ');
+    if (parts.isNotEmpty) {
+      setState(() {
+        _currentCityName = parts.last;
+      });
+    }
   }
 
   void _centerOnUser() {
@@ -195,7 +218,6 @@ class _MapScreenState extends State<MapScreen> {
           for (final f in fuels) {
             final priceVal = item['${f}_prix'];
             if (priceVal != null) {
-              // Application du coefficient temps réel basé sur le baril pour chaque prix
               double adjustedPrice = (priceVal as num).toDouble() * _marketBarrelCoefficient;
               prices[f.toUpperCase()] = adjustedPrice;
             }
@@ -226,6 +248,7 @@ class _MapScreenState extends State<MapScreen> {
             _stations.addAll(loadedStations);
             _isLoadingStations = false;
           });
+          _updateCurrentCityFromGPS();
         }
       } else {
         if (mounted) setState(() => _isLoadingStations = false);
@@ -235,43 +258,54 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  // EXIGENCE CLÉ : Station la moins chère STRICTEMENT PROCHE de chez toi (ex: rayon de 7km max)
+  // Recherche ciblée strictement dans la ville géolocalisée
   void _findCheapestNearbyStation() {
+    if (_stations.isEmpty) return;
+
     final center = _userLocation ?? _currentCenter;
+    Station closest = _stations.first;
+    double minDst = double.infinity;
+    for (var s in _stations) {
+      double d = Geolocator.distanceBetween(center.latitude, center.longitude, s.latitude, s.longitude);
+      if (d < minDst) {
+        minDst = d;
+        closest = s;
+      }
+    }
 
-    final available = _stations.where((s) =>
-        s.prices.containsKey(_selectedFuel) &&
-        !s.shortages.contains(_selectedFuel)).toList();
+    String targetCity = '';
+    final parts = closest.address.split(' ');
+    if (parts.isNotEmpty) {
+      targetCity = parts.last.toUpperCase();
+    }
 
-    if (available.isEmpty) return;
+    final cityStations = _stations.where((s) {
+      final addrUpper = s.address.toUpperCase();
+      final hasFuel = s.prices.containsKey(_selectedFuel) && !s.shortages.contains(_selectedFuel);
+      return addrUpper.contains(targetCity) && hasFuel;
+    }).toList();
 
-    for (var s in available) {
-      s.distance = Geolocator.distanceBetween(
-        center.latitude,
-        center.longitude,
-        s.latitude,
-        s.longitude,
+    List<Station> candidates = cityStations;
+    if (candidates.isEmpty) {
+      candidates = _stations.where((s) =>
+          s.prices.containsKey(_selectedFuel) &&
+          !s.shortages.contains(_selectedFuel) &&
+          Geolocator.distanceBetween(center.latitude, center.longitude, s.latitude, s.longitude) <= 10000
+      ).toList();
+    }
+
+    if (candidates.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Aucune station disponible pour ce carburant dans votre ville.')),
       );
+      return;
     }
 
-    // Filtre strict de proximité (ex: rayon de 7 km autour de Rueil)
-    // Cela évite de proposer Paris si l'utilisateur veut du local proche.
-    var localStations = available.where((s) => s.distance! <= 7000).toList();
+    candidates.sort((a, b) => a.prices[_selectedFuel]!.compareTo(b.prices[_selectedFuel]!));
+    final cheapestInCity = candidates.first;
 
-    if (localStations.isEmpty) {
-      localStations = available.where((s) => s.distance! <= 12000).toList();
-    }
-    if (localStations.isEmpty) {
-      localStations = available;
-    }
-
-    // Tri par prix croissant : la première est la moins chère de ton secteur proche
-    localStations.sort((a, b) => a.prices[_selectedFuel]!.compareTo(b.prices[_selectedFuel]!));
-
-    final cheapestLocal = localStations.first;
-
-    _mapController.move(LatLng(cheapestLocal.latitude, cheapestLocal.longitude), 14.5);
-    _showStationDetails(cheapestLocal);
+    _mapController.move(LatLng(cheapestInCity.latitude, cheapestInCity.longitude), 14.5);
+    _showStationDetails(cheapestInCity);
   }
 
   double _calculateAveragePrice() {
@@ -411,7 +445,7 @@ class _MapScreenState extends State<MapScreen> {
 
             const SizedBox(height: 16),
             const Text(
-              'Prix des carburants (Mis à jour / baril)',
+              'Prix des carburants (Actualisés / Baril)',
               style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87),
             ),
             const SizedBox(height: 8),
@@ -549,6 +583,7 @@ class _MapScreenState extends State<MapScreen> {
       body: SizedBox.expand(
         child: Stack(
           children: [
+            // LA CARTE (FlutterMap complet avec fond Positron et calques de marqueurs)
             FlutterMap(
               mapController: _mapController,
               options: MapOptions(
@@ -556,9 +591,9 @@ class _MapScreenState extends State<MapScreen> {
                 initialZoom: 12.0,
               ),
               children: [
-                // Fond de carte clair, lumineux et moderne sans clé API
                 TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/positron/{z}/{x}/{y}{r}.png',
+                  subdomains: const ['a', 'b', 'c', 'd'],
                   userAgentPackageName: 'com.example.carbustock',
                 ),
                 MarkerLayer(
@@ -667,7 +702,7 @@ class _MapScreenState extends State<MapScreen> {
                 foregroundColor: Colors.white,
                 elevation: 4,
                 icon: const Icon(Icons.bolt),
-                label: const Text('MOINS CHÈRE PROCHE', style: TextStyle(fontWeight: FontWeight.bold)),
+                label: const Text('MOINS CHÈRE VILLE', style: TextStyle(fontWeight: FontWeight.bold)),
               ),
             ),
 
@@ -692,7 +727,7 @@ class _MapScreenState extends State<MapScreen> {
                         Text(
                           _isLoadingLocation
                               ? 'Position GPS...'
-                              : 'Chargement des stations (Baril mis à jour)...',
+                              : 'Actualisation baril & stations...',
                           style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: Colors.black87),
                         ),
                       ],
