@@ -22,7 +22,7 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.blueAccent,
+          seedColor: Colors.black,
           brightness: Brightness.light,
         ),
         useMaterial3: true,
@@ -46,9 +46,8 @@ class _MapScreenState extends State<MapScreen> {
   int _tankCapacity = 50;
   final MapController _mapController = MapController();
 
-  LatLng _currentCenter = const LatLng(48.8878, 2.1807); // Rueil-Malmaison par défaut
+  LatLng _currentCenter = const LatLng(48.8878, 2.1807);
   LatLng? _userLocation;
-  String _currentCityName = 'Rueil-Malmaison';
   StreamSubscription<Position>? _positionStreamSubscription;
 
   bool _isLoadingLocation = false;
@@ -68,7 +67,6 @@ class _MapScreenState extends State<MapScreen> {
     super.dispose();
   }
 
-  // Ajustement dynamique quotidien basé sur le baril/tendances du marché
   void _initDynamicMarketAdjustment() {
     final now = DateTime.now();
     int dayOfYear = now.difference(DateTime(now.year, 1, 1)).inDays;
@@ -97,12 +95,6 @@ class _MapScreenState extends State<MapScreen> {
       }
     }
 
-    if (permission == LocationPermission.deniedForever) {
-      if (mounted) setState(() => _isLoadingLocation = false);
-      _fetchIDFStations();
-      return;
-    }
-
     try {
       final Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
@@ -115,19 +107,13 @@ class _MapScreenState extends State<MapScreen> {
           _isLoadingLocation = false;
         });
         _mapController.move(_currentCenter, 13.5);
-        _updateCurrentCityFromGPS();
       }
     } catch (e) {
       if (mounted) setState(() => _isLoadingLocation = false);
     }
 
-    const locationSettings = LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 10,
-    );
-
     _positionStreamSubscription = Geolocator.getPositionStream(
-      locationSettings: locationSettings,
+      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 10),
     ).listen((Position position) {
       if (mounted) {
         setState(() {
@@ -139,43 +125,12 @@ class _MapScreenState extends State<MapScreen> {
     _fetchIDFStations();
   }
 
-  void _updateCurrentCityFromGPS() {
-    if (_stations.isEmpty) return;
-    final center = _userLocation ?? _currentCenter;
-    
-    Station closest = _stations.first;
-    double minDst = double.infinity;
-    
-    for (var s in _stations) {
-      double d = Geolocator.distanceBetween(center.latitude, center.longitude, s.latitude, s.longitude);
-      if (d < minDst) {
-        minDst = d;
-        closest = s;
-      }
-    }
-
-    final parts = closest.address.split(' ');
-    if (parts.isNotEmpty) {
-      setState(() {
-        _currentCityName = parts.last;
-      });
-    }
-  }
-
-  void _centerOnUser() {
-    if (_userLocation != null) {
-      _mapController.move(_userLocation!, 14.5);
-    } else {
-      _initLocationService();
-    }
-  }
-
   String _extractBrandName(String address, String city) {
     final String fullText = '$address $city'.toUpperCase();
     final brands = [
       'TOTAL', 'TOTALACCESS', 'LECLERC', 'E.LECLERC', 'INTERMARCHE',
       'CARREFOUR', 'BP', 'ESSO', 'SHELL', 'AUCHAN', 'CASINO', 'CORA',
-      'SYSTEME U', 'SUPER U', 'HYPER U', 'AVIA', 'NETTO', 'AGIP', 'DINETT'
+      'SYSTEME U', 'SUPER U', 'HYPER U', 'AVIA', 'NETTO', 'AGIP'
     ];
 
     for (final b in brands) {
@@ -248,7 +203,6 @@ class _MapScreenState extends State<MapScreen> {
             _stations.addAll(loadedStations);
             _isLoadingStations = false;
           });
-          _updateCurrentCityFromGPS();
         }
       } else {
         if (mounted) setState(() => _isLoadingStations = false);
@@ -258,7 +212,6 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  // Recherche ciblée strictement dans la ville géolocalisée
   void _findCheapestNearbyStation() {
     if (_stations.isEmpty) return;
 
@@ -285,27 +238,22 @@ class _MapScreenState extends State<MapScreen> {
       return addrUpper.contains(targetCity) && hasFuel;
     }).toList();
 
-    List<Station> candidates = cityStations;
-    if (candidates.isEmpty) {
-      candidates = _stations.where((s) =>
-          s.prices.containsKey(_selectedFuel) &&
-          !s.shortages.contains(_selectedFuel) &&
-          Geolocator.distanceBetween(center.latitude, center.longitude, s.latitude, s.longitude) <= 10000
-      ).toList();
-    }
+    List<Station> candidates = cityStations.isNotEmpty ? cityStations : _stations.where((s) =>
+        s.prices.containsKey(_selectedFuel) && !s.shortages.contains(_selectedFuel)
+    ).toList();
 
     if (candidates.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Aucune station disponible pour ce carburant dans votre ville.')),
+        const SnackBar(content: Text('Aucune station disponible pour ce carburant.')),
       );
       return;
     }
 
     candidates.sort((a, b) => a.prices[_selectedFuel]!.compareTo(b.prices[_selectedFuel]!));
-    final cheapestInCity = candidates.first;
+    final cheapest = candidates.first;
 
-    _mapController.move(LatLng(cheapestInCity.latitude, cheapestInCity.longitude), 14.5);
-    _showStationDetails(cheapestInCity);
+    _mapController.move(LatLng(cheapest.latitude, cheapest.longitude), 15.0);
+    _showStationDetails(cheapest);
   }
 
   double _calculateAveragePrice() {
@@ -319,27 +267,8 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _openNavigation(double lat, double lng) async {
-    final uri = Uri.parse('google.navigation:q=$lat,$lng');
-    final fallbackUri = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$lat,$lng');
-
-    try {
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri);
-      } else {
-        await launchUrl(fallbackUri, mode: LaunchMode.externalApplication);
-      }
-    } catch (_) {
-      await launchUrl(fallbackUri, mode: LaunchMode.externalApplication);
-    }
-  }
-
-  Color _getMarkerColor(Station station) {
-    if (station.shortages.contains(_selectedFuel)) {
-      return Colors.red;
-    } else if (station.prices.containsKey(_selectedFuel)) {
-      return Colors.green.shade700;
-    }
-    return Colors.grey;
+    final uri = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$lat,$lng');
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
   void _showStationDetails(Station station) {
@@ -357,7 +286,7 @@ class _MapScreenState extends State<MapScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (_) => Padding(
         padding: const EdgeInsets.all(20.0),
@@ -367,7 +296,7 @@ class _MapScreenState extends State<MapScreen> {
           children: [
             Center(
               child: Container(
-                width: 40,
+                width: 36,
                 height: 4,
                 margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
@@ -378,30 +307,25 @@ class _MapScreenState extends State<MapScreen> {
             ),
             Row(
               children: [
-                const Icon(Icons.local_gas_station, color: Colors.blue, size: 28),
-                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     station.name,
-                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 4),
-            Text(
-              station.address,
-              style: TextStyle(color: Colors.grey[600], fontSize: 13),
-            ),
+            Text(station.address, style: TextStyle(color: Colors.grey[600], fontSize: 12)),
             const SizedBox(height: 16),
 
             if (price != null)
               Container(
-                padding: const EdgeInsets.all(14),
+                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.blue.shade200),
+                  color: Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.grey.shade200),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -409,90 +333,38 @@ class _MapScreenState extends State<MapScreen> {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'Coût du plein ($_tankCapacity L) :',
-                          style: TextStyle(color: Colors.blue.shade900, fontWeight: FontWeight.w500),
-                        ),
-                        Text(
-                          '${(price * _tankCapacity).toStringAsFixed(2)} €',
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.blue.shade900,
-                          ),
-                        ),
+                        Text('Plein ($_tankCapacity L) :', style: TextStyle(color: Colors.grey.shade700, fontSize: 12)),
+                        Text('${(price * _tankCapacity).toStringAsFixed(2)} €', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
                       ],
                     ),
                     if (savings > 0)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.green,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          '-${savings.toStringAsFixed(2)} €',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
+                      Text('-${savings.toStringAsFixed(2)} € vs moy.', style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 13)),
                   ],
                 ),
               ),
 
             const SizedBox(height: 16),
-            const Text(
-              'Prix des carburants (Actualisés / Baril)',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87),
-            ),
+            const Text('Carburants', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87)),
             const SizedBox(height: 8),
             Container(
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(12),
-              ),
+              decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(10)),
               child: Column(
                 children: allFuels.map((fuel) {
                   final fuelPrice = station.prices[fuel];
                   final isShort = station.shortages.contains(fuel);
 
                   return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          fuel,
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: fuel == _selectedFuel ? Colors.blue : Colors.black87,
-                          ),
-                        ),
+                        Text(fuel, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: fuel == _selectedFuel ? Colors.black : Colors.grey[700])),
                         if (fuelPrice != null)
-                          Text(
-                            '${fuelPrice.toStringAsFixed(3)} €/L',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.green.shade700,
-                              fontSize: 15,
-                            ),
-                          )
+                          Text('${fuelPrice.toStringAsFixed(3)} €/L', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87))
                         else if (isShort)
-                          const Text(
-                            'Rupture',
-                            style: TextStyle(
-                              color: Colors.red,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          )
+                          const Text('Rupture', style: TextStyle(color: Colors.red, fontSize: 12, fontWeight: FontWeight.bold))
                         else
-                          Text(
-                            'Non dispo',
-                            style: TextStyle(color: Colors.grey[500]),
-                          ),
+                          Text('N/D', style: TextStyle(color: Colors.grey[400], fontSize: 12)),
                       ],
                     ),
                   );
@@ -502,24 +374,19 @@ class _MapScreenState extends State<MapScreen> {
             const SizedBox(height: 20),
             SizedBox(
               width: double.infinity,
-              child: ElevatedButton.icon(
+              child: ElevatedButton(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
+                  backgroundColor: Colors.black,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  elevation: 0,
                 ),
                 onPressed: () {
                   Navigator.pop(context);
                   _openNavigation(station.latitude, station.longitude);
                 },
-                icon: const Icon(Icons.navigation),
-                label: const Text(
-                  'LANCER L\'ITINÉRAIRE (GPS)',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                ),
+                child: const Text('Y ALLER (GPS)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
               ),
             ),
           ],
@@ -531,50 +398,46 @@ class _MapScreenState extends State<MapScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('CarbuStock - ÎdF'),
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
-        elevation: 2,
+        title: const Text('CarbuStock', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87)),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: true,
+        iconTheme: const IconThemeData(color: Colors.black87),
         actions: [
           DropdownButton<int>(
             value: _tankCapacity,
             underline: const SizedBox(),
-            icon: const Icon(Icons.tune, color: Colors.white, size: 18),
-            dropdownColor: Colors.blue,
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            icon: const Icon(Icons.keyboard_arrow_down, size: 16, color: Colors.black54),
+            dropdownColor: Colors.white,
+            style: const TextStyle(color: Colors.black87, fontSize: 13, fontWeight: FontWeight.bold),
             items: <int>[30, 40, 50, 60, 70].map<DropdownMenuItem<int>>((int value) {
               return DropdownMenuItem<int>(
                 value: value,
-                child: Text('${value}L', style: const TextStyle(color: Colors.white)),
+                child: Text('${value}L'),
               );
             }).toList(),
             onChanged: (int? newValue) {
-              if (newValue != null) {
-                setState(() => _tankCapacity = newValue);
-              }
+              if (newValue != null) setState(() => _tankCapacity = newValue);
             },
           ),
           const SizedBox(width: 8),
           DropdownButton<String>(
             value: _selectedFuel,
             underline: const SizedBox(),
-            icon: const Icon(Icons.local_gas_station, color: Colors.white),
-            dropdownColor: Colors.blue,
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            icon: const Icon(Icons.keyboard_arrow_down, size: 16, color: Colors.black54),
+            dropdownColor: Colors.white,
+            style: const TextStyle(color: Colors.black87, fontSize: 13, fontWeight: FontWeight.bold),
             items: <String>['E10', 'E5', 'SP98', 'GAZOLE', 'GPLC', 'E85']
                 .map<DropdownMenuItem<String>>((String value) {
               return DropdownMenuItem<String>(
                 value: value,
-                child: Text(value, style: const TextStyle(color: Colors.white)),
+                child: Text(value),
               );
             }).toList(),
             onChanged: (String? newValue) {
-              if (newValue != null) {
-                setState(() {
-                  _selectedFuel = newValue;
-                });
-              }
+              if (newValue != null) setState(() => _selectedFuel = newValue);
             },
           ),
           const SizedBox(width: 12),
@@ -583,7 +446,6 @@ class _MapScreenState extends State<MapScreen> {
       body: SizedBox.expand(
         child: Stack(
           children: [
-            // LA CARTE (FlutterMap complet avec fond Positron et calques de marqueurs)
             FlutterMap(
               mapController: _mapController,
               options: MapOptions(
@@ -592,97 +454,73 @@ class _MapScreenState extends State<MapScreen> {
               ),
               children: [
                 TileLayer(
-                  urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/positron/{z}/{x}/{y}{r}.png',
+                  // Fond de carte CartoDB Positron : propre, moderne, ultra-lisible, gris/blanc sans look "à l'ancienne"
+                  urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
                   subdomains: const ['a', 'b', 'c', 'd'],
-                  userAgentPackageName: 'com.example.carbustock',
                 ),
                 MarkerLayer(
                   markers: [
                     if (_userLocation != null)
                       Marker(
                         point: _userLocation!,
-                        width: 24,
-                        height: 24,
+                        width: 20,
+                        height: 20,
                         child: Container(
                           decoration: BoxDecoration(
-                            color: Colors.blue.withOpacity(0.2),
+                            color: Colors.black.withOpacity(0.1),
                             shape: BoxShape.circle,
-                            border: Border.all(color: Colors.blueAccent, width: 2),
-                          ),
-                          child: Center(
-                            child: Container(
-                              width: 10,
-                              height: 10,
-                              decoration: const BoxDecoration(
-                                color: Colors.blueAccent,
-                                shape: BoxShape.circle,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black26,
-                                    blurRadius: 3,
-                                  ),
-                                ],
-                              ),
-                            ),
+                            border: Border.all(color: Colors.black, width: 2),
                           ),
                         ),
                       ),
                     ..._stations.map((station) {
-                      final color = _getMarkerColor(station);
+                      final isShort = station.shortages.contains(_selectedFuel);
                       final price = station.prices[_selectedFuel];
+
                       return Marker(
                         point: LatLng(station.latitude, station.longitude),
-                        width: 76,
-                        height: 48,
+                        width: 64,
+                        height: 38,
                         child: GestureDetector(
                           onTap: () => _showStationDetails(station),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: color, width: 1.5),
-                                  boxShadow: const [
-                                    BoxShadow(
-                                      color: Colors.black12,
-                                      blurRadius: 4,
-                                      offset: Offset(0, 2),
-                                    )
-                                  ],
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: isShort ? Colors.red.shade300 : Colors.black87, width: 1),
+                              boxShadow: const [
+                                BoxShadow(
+                                  color: Colors.black12,
+                                  blurRadius: 2,
+                                  offset: Offset(0, 1),
+                                )
+                              ],
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  station.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.black54,
+                                    fontSize: 7,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      station.name,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: Colors.black87,
-                                        fontSize: 7.5,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    Text(
-                                      price != null ? '${price.toStringAsFixed(2)}€' : 'RPT',
-                                      style: TextStyle(
-                                        color: color == Colors.red
-                                            ? Colors.red
-                                            : (color == Colors.green.shade700
-                                                ? Colors.green.shade700
-                                                : Colors.grey),
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
-                                        fontFamily: 'monospace',
-                                      ),
-                                    ),
-                                  ],
+                                Text(
+                                  price != null ? '${price.toStringAsFixed(2)}€' : 'RPT',
+                                  style: TextStyle(
+                                    color: isShort ? Colors.red : Colors.black87,
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       );
@@ -691,47 +529,45 @@ class _MapScreenState extends State<MapScreen> {
                 ),
               ],
             ),
-
             Positioned(
-              bottom: 20,
+              bottom: 24,
               left: 16,
               child: FloatingActionButton.extended(
                 heroTag: 'btn_cheapest',
                 onPressed: _findCheapestNearbyStation,
-                backgroundColor: Colors.green.shade600,
+                backgroundColor: Colors.black,
                 foregroundColor: Colors.white,
-                elevation: 4,
-                icon: const Icon(Icons.bolt),
-                label: const Text('MOINS CHÈRE VILLE', style: TextStyle(fontWeight: FontWeight.bold)),
+                elevation: 2,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                icon: const Icon(Icons.near_me, size: 18),
+                label: const Text('MOINS CHÈRE', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
               ),
             ),
-
             if (_isLoadingLocation || _isLoadingStations)
               Positioned(
-                top: 16,
+                top: 12,
                 left: 16,
-                child: Card(
-                  elevation: 4,
-                  color: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  child: Padding(
-                    padding: const EdgeInsets.all(10.0),
-                    child: Row(
-                      children: [
-                        const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blue),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          _isLoadingLocation
-                              ? 'Position GPS...'
-                              : 'Actualisation baril & stations...',
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: Colors.black87),
-                        ),
-                      ],
-                    ),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(6),
+                    boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        _isLoadingLocation ? 'Localisation...' : 'Chargement...',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Colors.black87),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -740,10 +576,18 @@ class _MapScreenState extends State<MapScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         heroTag: 'btn_location',
-        onPressed: _centerOnUser,
+        mini: true,
+        onPressed: () {
+          if (_userLocation != null) {
+            _mapController.move(_userLocation!, 14.5);
+          } else {
+            _initLocationService();
+          }
+        },
         backgroundColor: Colors.white,
-        foregroundColor: Colors.blue,
-        child: const Icon(Icons.my_location),
+        foregroundColor: Colors.black87,
+        elevation: 2,
+        child: const Icon(Icons.my_location, size: 18),
       ),
     );
   }
