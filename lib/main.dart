@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:http/http.dart' as http;
 
 void main() {
   runApp(const CarbuStockApp());
@@ -14,7 +16,7 @@ class CarbuStockApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'CarbuStock IDF - Rueil Ultra Précis',
+      title: 'CarbuStock IDF - Live API',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         primarySwatch: Colors.blue,
@@ -36,26 +38,27 @@ class _MapScreenState extends State<MapScreen> {
   String selectedVolume = '40L';
   String selectedFuel = 'E10';
   String currentCity = 'Rueil-Malmaison';
-  
-  // Facteur fixe pour que le SP95 chez Total soit strictement à 1,99 €
-  double barrelPriceUSD = 80.0;
 
-  LatLng userPosition = const LatLng(48.8878, 2.1807);
+  LatLng userPosition = const LatLng(48.8878, 2.1807); // Position par défaut (Rueil)
   bool isLocating = false;
+  bool isLoadingStations = false;
   final MapController mapController = MapController();
+
+  List<Map<String, dynamic>> stations = [];
 
   @override
   void initState() {
     super.initState();
-    _determinePosition();
+    _determinePositionAndFetch();
   }
 
-  Future<void> _determinePosition() async {
-    setState(() { isLocating = true; });
+  Future<void> _determinePositionAndFetch() async {
+    setState(() { isLocating = true; isLoadingStations = true; });
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        setState(() { isLocating = false; });
+        setState(() { isLocating = false; isLoadingStations = false; });
+        _fetchStationsFromApi(userPosition.latitude, userPosition.longitude);
         return;
       }
 
@@ -63,13 +66,15 @@ class _MapScreenState extends State<MapScreen> {
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
-          setState(() { isLocating = false; });
+          setState(() { isLocating = false; isLoadingStations = false; });
+          _fetchStationsFromApi(userPosition.latitude, userPosition.longitude);
           return;
         }
       }
       
       if (permission == LocationPermission.deniedForever) {
-        setState(() { isLocating = false; });
+        setState(() { isLocating = false; isLoadingStations = false; });
+        _fetchStationsFromApi(userPosition.latitude, userPosition.longitude);
         return;
       }
 
@@ -82,364 +87,79 @@ class _MapScreenState extends State<MapScreen> {
         isLocating = false;
       });
 
-      // Zoom ultra-rapproché (16.5) pour voir les stations à moins de 500m autour de soi
-      mapController.move(userPosition, 16.5);
+      mapController.move(userPosition, 15.5);
+      await _fetchStationsFromApi(userPosition.latitude, userPosition.longitude);
+
     } catch (e) {
-      setState(() { isLocating = false; });
+      setState(() { isLocating = false; isLoadingStations = false; });
+      _fetchStationsFromApi(userPosition.latitude, userPosition.longitude);
     }
   }
 
-  // Catalogue maximal contenant l'intégralité des stations de Rueil-Malmaison à quelques mètres près + IDF
-  final List<Map<String, dynamic>> stations = [
-    // --- RUEIL-MALMAISON (Toutes les stations réelles à moins de 500m / 1km) ---
-    {
-      'name': 'TOTALENERGIES RUEIL COLMAR',
-      'city': 'Rueil-Malmaison',
-      'lat': 48.8812,
-      'lon': 2.1645,
-      'baseFuels': {'E10': 1.95, 'SP98': 2.05, 'Gazole': 1.92, 'SP95': 1.99, 'E85': 0.75}
-    },
-    {
-      'name': 'TOTALENERGIES RUEIL PONT',
-      'city': 'Rueil-Malmaison',
-      'lat': 48.8680,
-      'lon': 2.1600,
-      'baseFuels': {'E10': 1.95, 'SP98': 2.05, 'Gazole': 1.92, 'SP95': 1.99, 'E85': 0.75}
-    },
-    {
-      'name': 'TOTALENERGIES BUZENVAL',
-      'city': 'Rueil-Malmaison',
-      'lat': 48.8600,
-      'lon': 2.1750,
-      'baseFuels': {'E10': 1.95, 'SP98': 2.05, 'Gazole': 1.92, 'SP95': 1.99, 'E85': 0.75}
-    },
-    {
-      'name': 'TOTALENERGIES RUEIL irc',
-      'city': 'Rueil-Malmaison',
-      'lat': 48.8755,
-      'lon': 2.1710,
-      'baseFuels': {'E10': 1.95, 'SP98': 2.05, 'Gazole': 1.92, 'SP95': 1.99, 'E85': 0.75}
-    },
-    {
-      'name': 'LECLERC Rueil-Malmaison',
-      'city': 'Rueil-Malmaison',
-      'lat': 48.8820,
-      'lon': 2.1550,
-      'baseFuels': {'E10': 1.62, 'SP98': 1.72, 'Gazole': 1.58, 'SP95': 1.67, 'E85': 0.68}
-    },
-    {
-      'name': 'ESSO Rueil Nationale',
-      'city': 'Rueil-Malmaison',
-      'lat': 48.8780,
-      'lon': 2.1720,
-      'baseFuels': {'E10': 1.93, 'SP98': 2.03, 'Gazole': 1.90, 'SP95': 1.97, 'E85': 0.74}
-    },
-    {
-      'name': 'BP Rueil-Malmaison',
-      'city': 'Rueil-Malmaison',
-      'lat': 48.8730,
-      'lon': 2.1810,
-      'baseFuels': {'E10': 1.94, 'SP98': 2.04, 'Gazole': 1.91, 'SP95': 1.98, 'E85': 0.74}
-    },
-    {
-      'name': 'AVIA Rueil',
-      'city': 'Rueil-Malmaison',
-      'lat': 48.8750,
-      'lon': 2.1650,
-      'baseFuels': {'E10': 1.94, 'SP98': 2.04, 'Gazole': 1.91, 'SP95': 1.98, 'E85': 0.74}
-    },
-    {
-      'name': 'INTERMARCHE Rueil',
-      'city': 'Rueil-Malmaison',
-      'lat': 48.8710,
-      'lon': 2.1500,
-      'baseFuels': {'E10': 1.63, 'SP98': 1.73, 'Gazole': 1.59, 'SP95': 1.68, 'E85': 0.68}
-    },
-    {
-      'name': 'ELAN Rueil Ville',
-      'city': 'Rueil-Malmaison',
-      'lat': 48.8790,
-      'lon': 2.1790,
-      'baseFuels': {'E10': 1.94, 'SP98': 2.04, 'Gazole': 1.91, 'SP95': 1.98, 'E85': 0.74}
-    },
+  Future<void> _fetchStationsFromApi(double lat, double lon) async {
+    setState(() { isLoadingStations = true; });
+    try {
+      final url = Uri.parse(
+        'https://prix-carburants.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane/records?'
+        'where=distance(geom, geompoint($lon, $lat), 15km)&limit=100'
+      );
 
-    // --- NANTERRE & ENVIRONS PROCHES (92) ---
-    {
-      'name': 'LECLERC Nanterre',
-      'city': 'Nanterre',
-      'lat': 48.8920,
-      'lon': 2.2060,
-      'baseFuels': {'E10': 1.62, 'SP98': 1.72, 'Gazole': 1.58, 'SP95': 1.67, 'E85': 0.68}
-    },
-    {
-      'name': 'TOTALENERGIES Nanterre',
-      'city': 'Nanterre',
-      'lat': 48.8900,
-      'lon': 2.2150,
-      'baseFuels': {'E10': 1.95, 'SP98': 2.05, 'Gazole': 1.92, 'SP95': 1.99, 'E85': 0.75}
-    },
-    {
-      'name': 'AVIA Nanterre',
-      'city': 'Nanterre',
-      'lat': 48.8850,
-      'lon': 2.2000,
-      'baseFuels': {'E10': 1.94, 'SP98': 2.04, 'Gazole': 1.91, 'SP95': 1.98, 'E85': 0.74}
-    },
-    {
-      'name': 'ESSO Defense / Courbevoie',
-      'city': 'Courbevoie',
-      'lat': 48.8905,
-      'lon': 2.2470,
-      'baseFuels': {'E10': 1.96, 'SP98': 2.06, 'Gazole': 1.93, 'SP95': 2.00, 'E85': 0.76}
-    },
-    {
-      'name': 'BP Courbevoie',
-      'city': 'Courbevoie',
-      'lat': 48.8980,
-      'lon': 2.2580,
-      'baseFuels': {'E10': 1.95, 'SP98': 2.05, 'Gazole': 1.92, 'SP95': 1.99, 'E85': 0.75}
-    },
-    {
-      'name': 'TOTALENERGIES Boulogne',
-      'city': 'Boulogne-Billancourt',
-      'lat': 48.8397,
-      'lon': 2.2450,
-      'baseFuels': {'E10': 1.95, 'SP98': 2.05, 'Gazole': 1.92, 'SP95': 1.99, 'E85': 0.75}
-    },
-    {
-      'name': 'ESSO Boulogne',
-      'city': 'Boulogne-Billancourt',
-      'lat': 48.8450,
-      'lon': 2.2550,
-      'baseFuels': {'E10': 1.96, 'SP98': 2.06, 'Gazole': 1.93, 'SP95': 2.00, 'E85': 0.76}
-    },
-    {
-      'name': 'CARREFOUR Issy-les-Moulineaux',
-      'city': 'Issy-les-Moulineaux',
-      'lat': 48.8230,
-      'lon': 2.2680,
-      'baseFuels': {'E10': 1.63, 'SP98': 1.73, 'Gazole': 1.59, 'SP95': 1.68, 'E85': 0.68}
-    },
-    {
-      'name': 'TOTALENERGIES Issy',
-      'city': 'Issy-les-Moulineaux',
-      'lat': 48.8280,
-      'lon': 2.2750,
-      'baseFuels': {'E10': 1.95, 'SP98': 2.05, 'Gazole': 1.92, 'SP95': 1.99, 'E85': 0.75}
-    },
-    {
-      'name': 'INTERMARCHE Neuilly',
-      'city': 'Neuilly-sur-Seine',
-      'lat': 48.8840,
-      'lon': 2.2680,
-      'baseFuels': {'E10': 1.65, 'SP98': 1.75, 'Gazole': 1.61, 'SP95': 1.70, 'E85': 0.70}
-    },
-    {
-      'name': 'TOTALENERGIES Levallois',
-      'city': 'Levallois-Perret',
-      'lat': 48.8920,
-      'lon': 2.2850,
-      'baseFuels': {'E10': 1.96, 'SP98': 2.06, 'Gazole': 1.93, 'SP95': 2.00, 'E85': 0.76}
-    },
-    {
-      'name': 'LECLERC Asnières',
-      'city': 'Asnières-sur-Seine',
-      'lat': 48.9110,
-      'lon': 2.2890,
-      'baseFuels': {'E10': 1.61, 'SP98': 1.71, 'Gazole': 1.57, 'SP95': 1.66, 'E85': 0.67}
-    },
-    {
-      'name': 'TOTALENERGIES Colombes',
-      'city': 'Colombes',
-      'lat': 48.9220,
-      'lon': 2.2510,
-      'baseFuels': {'E10': 1.95, 'SP98': 2.05, 'Gazole': 1.92, 'SP95': 1.99, 'E85': 0.75}
-    },
-    {
-      'name': 'LECLERC Gennevilliers',
-      'city': 'Gennevilliers',
-      'lat': 48.9380,
-      'lon': 2.2980,
-      'baseFuels': {'E10': 1.60, 'SP98': 1.70, 'Gazole': 1.56, 'SP95': 1.65, 'E85': 0.66}
-    },
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final results = data['results'] as List;
 
-    // --- PARIS (75) ---
-    {
-      'name': 'TOTALENERGIES Bercy',
-      'city': 'Paris',
-      'lat': 48.8360,
-      'lon': 2.3830,
-      'baseFuels': {'E10': 1.98, 'SP98': 2.08, 'Gazole': 1.95, 'SP95': 2.02, 'E85': 0.78}
-    },
-    {
-      'name': 'BP Porte Maillot',
-      'city': 'Paris',
-      'lat': 48.8785,
-      'lon': 2.2820,
-      'baseFuels': {'E10': 1.97, 'SP98': 2.07, 'Gazole': 1.94, 'SP95': 2.01, 'E85': 0.77}
-    },
-    {
-      'name': 'ESSO Italie',
-      'city': 'Paris',
-      'lat': 48.8280,
-      'lon': 2.3550,
-      'baseFuels': {'E10': 1.95, 'SP98': 2.05, 'Gazole': 1.92, 'SP95': 1.99, 'E85': 0.75}
-    },
-    {
-      'name': 'TOTALENERGIES La Chapelle',
-      'city': 'Paris',
-      'lat': 48.8910,
-      'lon': 2.3610,
-      'baseFuels': {'E10': 1.96, 'SP98': 2.06, 'Gazole': 1.93, 'SP95': 2.00, 'E85': 0.76}
-    },
-    {
-      'name': 'AVIA Bastille',
-      'city': 'Paris',
-      'lat': 48.8530,
-      'lon': 2.3710,
-      'baseFuels': {'E10': 1.97, 'SP98': 2.07, 'Gazole': 1.94, 'SP95': 2.01, 'E85': 0.77}
-    },
-    {
-      'name': 'TOTALENERGIES Alésia',
-      'city': 'Paris',
-      'lat': 48.8270,
-      'lon': 2.3250,
-      'baseFuels': {'E10': 1.96, 'SP98': 2.06, 'Gazole': 1.93, 'SP95': 2.00, 'E85': 0.76}
-    },
-    {
-      'name': 'TOTALENERGIES Montparnasse',
-      'city': 'Paris',
-      'lat': 48.8420,
-      'lon': 2.3210,
-      'baseFuels': {'E10': 1.99, 'SP98': 2.09, 'Gazole': 1.96, 'SP95': 2.03, 'E85': 0.79}
-    },
-    {
-      'name': 'ESSO République',
-      'city': 'Paris',
-      'lat': 48.8670,
-      'lon': 2.3630,
-      'baseFuels': {'E10': 1.94, 'SP98': 2.04, 'Gazole': 1.91, 'SP95': 1.98, 'E85': 0.74}
-    },
-    {
-      'name': 'TOTALENERGIES Nation',
-      'city': 'Paris',
-      'lat': 48.8480,
-      'lon': 2.3980,
-      'baseFuels': {'E10': 1.96, 'SP98': 2.06, 'Gazole': 1.93, 'SP95': 2.00, 'E85': 0.76}
-    },
-    {
-      'name': 'TOTALENERGIES Invalides',
-      'city': 'Paris',
-      'lat': 48.8566,
-      'lon': 2.3125,
-      'baseFuels': {'E10': 2.01, 'SP98': 2.11, 'Gazole': 1.98, 'SP95': 2.05, 'E85': 0.81}
-    },
+        List<Map<String, dynamic>> loadedStations = [];
 
-    // --- YVELINES (78) ---
-    {
-      'name': 'TOTALENERGIES Versailles',
-      'city': 'Versailles',
-      'lat': 48.8014,
-      'lon': 2.1301,
-      'baseFuels': {'E10': 1.94, 'SP98': 2.04, 'Gazole': 1.91, 'SP95': 1.98, 'E85': 0.74}
-    },
-    {
-      'name': 'LECLERC Sartrouville',
-      'city': 'Sartrouville',
-      'lat': 48.9380,
-      'lon': 2.1530,
-      'baseFuels': {'E10': 1.61, 'SP98': 1.71, 'Gazole': 1.57, 'SP95': 1.66, 'E85': 0.67}
-    },
-    {
-      'name': 'ESSO Mantes-la-Jolie',
-      'city': 'Mantes-la-Jolie',
-      'lat': 48.9910,
-      'lon': 1.7180,
-      'baseFuels': {'E10': 1.95, 'SP98': 2.05, 'Gazole': 1.92, 'SP95': 1.99, 'E85': 0.75}
-    },
-    {
-      'name': 'CARREFOUR Montigny-le-Bretonneux',
-      'city': 'Montigny-le-Bretonneux',
-      'lat': 48.7750,
-      'lon': 2.0350,
-      'baseFuels': {'E10': 1.62, 'SP98': 1.72, 'Gazole': 1.58, 'SP95': 1.67, 'E85': 0.68}
-    },
+        for (var record in results) {
+          final geom = record['geom']?['coordinates'];
+          if (geom != null && geom.length >= 2) {
+            double stationLon = geom[0];
+            double stationLat = geom[1];
+            String name = record['brand'] ?? record['name'] ?? 'Station Service';
+            String city = record['ville'] ?? 'Île-de-France';
+            
+            Map<String, double> fuels = {};
+            
+            if (record['sp95_prix'] != null) fuels['SP95'] = (record['sp95_prix'] as num).toDouble();
+            if (record['sp98_prix'] != null) fuels['SP98'] = (record['sp98_prix'] as num).toDouble();
+            if (record['e10_prix'] != null) fuels['E10'] = (record['e10_prix'] as num).toDouble();
+            if (record['gazole_prix'] != null) fuels['Gazole'] = (record['gazole_prix'] as num).toDouble();
+            if (record['e85_prix'] != null) fuels['E85'] = (record['e85_prix'] as num).toDouble();
 
-    // --- SEINE-SAINT-DENIS (93) ---
-    {
-      'name': 'LECLERC Bobigny',
-      'city': 'Bobigny',
-      'lat': 48.9090,
-      'lon': 2.4400,
-      'baseFuels': {'E10': 1.61, 'SP98': 1.71, 'Gazole': 1.57, 'SP95': 1.66, 'E85': 0.67}
-    },
-    {
-      'name': 'TOTALENERGIES Saint-Denis',
-      'city': 'Saint-Denis',
-      'lat': 48.9360,
-      'lon': 2.3570,
-      'baseFuels': {'E10': 1.95, 'SP98': 2.05, 'Gazole': 1.92, 'SP95': 1.99, 'E85': 0.75}
-    },
+            if (fuels.isNotEmpty) {
+              loadedStations.add({
+                'name': name.toUpperCase(),
+                'city': city,
+                'lat': stationLat,
+                'lon': stationLon,
+                'baseFuels': fuels,
+              });
+            }
+          }
+        }
 
-    // --- VAL-DE-MARNE (94) ---
-    {
-      'name': 'CARREFOUR Créteil',
-      'city': 'Créteil',
-      'lat': 48.7770,
-      'lon': 2.4500,
-      'baseFuels': {'E10': 1.62, 'SP98': 1.72, 'Gazole': 1.58, 'SP95': 1.67, 'E85': 0.68}
-    },
-    {
-      'name': 'TOTALENERGIES Ivry-sur-Seine',
-      'city': 'Ivry-sur-Seine',
-      'lat': 48.8150,
-      'lon': 2.3900,
-      'baseFuels': {'E10': 1.95, 'SP98': 2.05, 'Gazole': 1.92, 'SP95': 1.99, 'E85': 0.75}
-    },
-
-    // --- ESSONNE (91) ---
-    {
-      'name': 'AUCHAN Brétigny-sur-Orge',
-      'city': 'Brétigny-sur-Orge',
-      'lat': 48.6120,
-      'lon': 2.3080,
-      'baseFuels': {'E10': 1.62, 'SP98': 1.72, 'Gazole': 1.58, 'SP95': 1.67, 'E85': 0.68}
-    },
-    {
-      'name': 'TOTALENERGIES Évry-Courcouronnes',
-      'city': 'Évry-Courcouronnes',
-      'lat': 48.6290,
-      'lon': 2.4380,
-      'baseFuels': {'E10': 1.95, 'SP98': 2.05, 'Gazole': 1.92, 'SP95': 1.99, 'E85': 0.75}
-    },
-
-    // --- SEINE-ET-MARNE (77) ---
-    {
-      'name': 'LECLERC Meaux',
-      'city': 'Meaux',
-      'lat': 48.9590,
-      'lon': 2.8870,
-      'baseFuels': {'E10': 1.59, 'SP98': 1.69, 'Gazole': 1.55, 'SP95': 1.64, 'E85': 0.65}
-    },
-
-    // --- VAL-D'OISE (95) ---
-    {
-      'name': 'LECLERC Cergy',
-      'city': 'Cergy',
-      'lat': 49.0380,
-      'lon': 2.0740,
-      'baseFuels': {'E10': 1.60, 'SP98': 1.70, 'Gazole': 1.56, 'SP95': 1.65, 'E85': 0.66}
-    },
-  ];
-
-  double getSpecificPrice(Map<String, dynamic> station, String fuelKey) {
-    double basePrice = station['baseFuels'][fuelKey] ?? 1.80;
-    double indexFactor = barrelPriceUSD / 80.0;
-    return double.parse((basePrice * indexFactor).toStringAsFixed(2));
+        setState(() {
+          stations = loadedStations;
+          isLoadingStations = false;
+        });
+      } else {
+        setState(() { isLoadingStations = false; });
+      }
+    } catch (e) {
+      setState(() { isLoadingStations = false; });
+    }
   }
 
   double getStationPrice(Map<String, dynamic> station) {
-    return getSpecificPrice(station, selectedFuel);
+    Map<String, dynamic> fuels = station['baseFuels'];
+    if (fuels.containsKey(selectedFuel)) {
+      return fuels[selectedFuel];
+    }
+    if (fuels.isNotEmpty) {
+      return fuels.values.first;
+    }
+    return 0.0;
   }
 
   double getSelectedLiters() {
@@ -464,9 +184,9 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   void showStationDetails(Map<String, dynamic> station) {
-    Map<String, dynamic> baseFuels = station['baseFuels'];
+    Map<String, dynamic> fuels = station['baseFuels'];
     double liters = getSelectedLiters();
-    double currentFuelPrice = getSpecificPrice(station, selectedFuel);
+    double currentFuelPrice = getStationPrice(station);
     double totalFullTank = currentFuelPrice * liters;
 
     showModalBottomSheet(
@@ -498,7 +218,7 @@ class _MapScreenState extends State<MapScreen> {
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
-                      'Prix Réels Vérifiés',
+                      'API Officielle Live',
                       style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.green.shade900),
                     ),
                   ),
@@ -525,7 +245,7 @@ class _MapScreenState extends State<MapScreen> {
                       style: TextStyle(fontWeight: FontWeight.w600, color: Colors.blue.shade900, fontSize: 13),
                     ),
                     Text(
-                      '${totalFullTank.toStringAsFixed(2)} €',
+                      '${totalFullTank > 0 ? totalFullTank.toStringAsFixed(2) : "N/C"} €',
                       style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blue.shade900),
                     ),
                   ],
@@ -533,7 +253,7 @@ class _MapScreenState extends State<MapScreen> {
               ),
               const SizedBox(height: 14),
               const Text(
-                'Grille complète des tarifs réels :',
+                'Tarifs en direct de la station :',
                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black54),
               ),
               const SizedBox(height: 8),
@@ -543,8 +263,8 @@ class _MapScreenState extends State<MapScreen> {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Column(
-                  children: baseFuels.keys.map((fuelKey) {
-                    double price = getSpecificPrice(station, fuelKey);
+                  children: fuels.keys.map((fuelKey) {
+                    double price = fuels[fuelKey];
                     bool isSelected = (fuelKey == selectedFuel);
                     return Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -626,31 +346,21 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  void goToCheapestInCurrentCity() {
-    List<Map<String, dynamic>> localStations = stations
-        .where((station) => station['city'].toLowerCase() == currentCity.toLowerCase())
-        .toList();
+  void goToCheapestStation() {
+    if (stations.isEmpty) return;
 
-    if (localStations.isEmpty) {
-      localStations = stations;
-    }
-
-    Map<String, dynamic> cheapest = localStations.first;
+    Map<String, dynamic> cheapest = stations.first;
     double minPrice = getStationPrice(cheapest);
 
-    for (var station in localStations) {
+    for (var station in stations) {
       double price = getStationPrice(station);
-      if (price < minPrice) {
+      if (price > 0 && price < minPrice) {
         minPrice = price;
         cheapest = station;
       }
     }
 
-    setState(() {
-      currentCity = cheapest['city'];
-    });
-
-    mapController.move(LatLng(cheapest['lat'], cheapest['lon']), 15.0);
+    mapController.move(LatLng(cheapest['lat'], cheapest['lon']), 16.0);
     showStationDetails(cheapest);
   }
 
@@ -663,7 +373,7 @@ class _MapScreenState extends State<MapScreen> {
             mapController: mapController,
             options: MapOptions(
               initialCenter: userPosition,
-              initialZoom: 15.0,
+              initialZoom: 15.5,
             ),
             children: [
               TileLayer(
@@ -727,7 +437,7 @@ class _MapScreenState extends State<MapScreen> {
                               ),
                               const SizedBox(height: 0.5),
                               Text(
-                                '$currentPrice€',
+                                currentPrice > 0 ? '$currentPrice€' : 'N/C',
                                 style: const TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.bold,
@@ -755,14 +465,14 @@ class _MapScreenState extends State<MapScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'CarbuStock IDF',
+                      'CarbuStock Live',
                       style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black),
                     ),
                     Row(
                       children: [
                         const Text('📍 ', style: TextStyle(fontSize: 12)),
                         Text(
-                          currentCity,
+                          isLoadingStations ? 'Chargement live...' : '${stations.length} stations proches',
                           style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey),
                         ),
                       ],
@@ -803,8 +513,8 @@ class _MapScreenState extends State<MapScreen> {
             child: FloatingActionButton(
               backgroundColor: Colors.white,
               foregroundColor: Colors.blueAccent,
-              onPressed: _determinePosition,
-              child: isLocating
+              onPressed: _determinePositionAndFetch,
+              child: isLocating || isLoadingStations
                   ? const SizedBox(
                       width: 20,
                       height: 20,
@@ -823,7 +533,7 @@ class _MapScreenState extends State<MapScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
-              onPressed: goToCheapestInCurrentCity,
+              onPressed: goToCheapestStation,
               icon: const Icon(Icons.navigation, size: 16),
               label: const Text(
                 'MOINS CHÈRE',
