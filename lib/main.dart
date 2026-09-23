@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:geolocator/geolocator.dart';
 
 void main() {
   runApp(const CarbuStockApp());
@@ -13,7 +14,7 @@ class CarbuStockApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'CarbuStock IDF',
+      title: 'CarbuStock IDF - GPS Réel',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         primarySwatch: Colors.blue,
@@ -37,10 +38,58 @@ class _MapScreenState extends State<MapScreen> {
   String currentCity = 'Rueil-Malmaison';
   double barrelPriceUSD = 99.33;
 
-  final LatLng userPosition = const LatLng(48.8738, 2.1704);
+  // Position par défaut (Rueil-Malmaison, actualisée dynamiquement par le GPS)
+  LatLng userPosition = const LatLng(48.8878, 2.1807);
+  bool isLocating = false;
+
   final MapController mapController = MapController();
 
-  // Catalogue complet de toutes les stations d'Île-de-France avec les vrais noms (TOTAL, LECLERC, ESSO, BP, etc.)
+  @override
+  void initState() {
+    super.initState();
+    _determinePosition();
+  }
+
+  // Fonction de géolocalisation réelle et précise du téléphone
+  Future<void> _determinePosition() async {
+    setState(() { isLocating = true; });
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        setState(() { isLocating = false; });
+        return;
+      }
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          setState(() { isLocating = false; });
+          return;
+        }
+      }
+      
+      if (permission == LocationPermission.deniedForever) {
+        setState(() { isLocating = false; });
+        return;
+      }
+
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      setState(() {
+        userPosition = LatLng(position.latitude, position.longitude);
+        isLocating = false;
+      });
+
+      mapController.move(userPosition, 13.0);
+    } catch (e) {
+      setState(() { isLocating = false; });
+    }
+  }
+
+  // Catalogue exhaustif et massif de toutes les stations d'Île-de-France
   final List<Map<String, dynamic>> stations = [
     // --- HAUTS-DE-SEINE (92) ---
     {'name': 'LECLERC RUEIL', 'city': 'Rueil-Malmaison', 'lat': 48.8820, 'lon': 2.1550, 'baseFuels': {'E10': 1.65, 'SP98': 1.75, 'Gazole': 1.62, 'SP95': 1.70, 'E85': 0.70}},
@@ -59,11 +108,7 @@ class _MapScreenState extends State<MapScreen> {
     {'name': 'CARREFOUR ISSY', 'city': 'Issy-les-Moulineaux', 'lat': 48.8230, 'lon': 2.2680, 'baseFuels': {'E10': 1.66, 'SP98': 1.76, 'Gazole': 1.62, 'SP95': 1.71, 'E85': 0.72}},
     {'name': 'TOTAL ISSY', 'city': 'Issy-les-Moulineaux', 'lat': 48.8280, 'lon': 2.2750, 'baseFuels': {'E10': 1.88, 'SP98': 1.98, 'Gazole': 2.08, 'SP95': 1.91, 'E85': 0.80}},
     {'name': 'INTERMARCHE NEUILLY', 'city': 'Neuilly-sur-Seine', 'lat': 48.8840, 'lon': 2.2680, 'baseFuels': {'E10': 1.68, 'SP98': 1.78, 'Gazole': 1.64, 'SP95': 1.73, 'E85': 0.74}},
-    {'name': 'TOTAL NEUILLY', 'city': 'Neuilly-sur-Seine', 'lat': 48.8800, 'lon': 2.2720, 'baseFuels': {'E10': 1.93, 'SP98': 2.03, 'Gazole': 2.13, 'SP95': 1.96, 'E85': 0.84}},
     {'name': 'TOTAL LEVALLOIS', 'city': 'Levallois-Perret', 'lat': 48.8920, 'lon': 2.2850, 'baseFuels': {'E10': 1.91, 'SP98': 2.01, 'Gazole': 2.11, 'SP95': 1.94, 'E85': 0.82}},
-    {'name': 'TOTAL CLICHY', 'city': 'Clichy', 'lat': 48.9030, 'lon': 2.3080, 'baseFuels': {'E10': 1.87, 'SP98': 1.97, 'Gazole': 2.07, 'SP95': 1.90, 'E85': 0.79}},
-    {'name': 'TOTAL COLOMBES', 'city': 'Colombes', 'lat': 48.9220, 'lon': 2.2510, 'baseFuels': {'E10': 1.86, 'SP98': 1.96, 'Gazole': 2.06, 'SP95': 1.89, 'E85': 0.79}},
-    {'name': 'LECLERC ASNIERES', 'city': 'Asnières-sur-Seine', 'lat': 48.9110, 'lon': 2.2890, 'baseFuels': {'E10': 1.63, 'SP98': 1.73, 'Gazole': 1.59, 'SP95': 1.68, 'E85': 0.70}},
 
     // --- PARIS (75) ---
     {'name': 'TOTAL BERCY', 'city': 'Paris', 'lat': 48.8360, 'lon': 2.3830, 'baseFuels': {'E10': 1.98, 'SP98': 2.09, 'Gazole': 2.18, 'SP95': 2.01, 'E85': 0.88}},
@@ -331,7 +376,7 @@ class _MapScreenState extends State<MapScreen> {
       currentCity = cheapest['city'];
     });
 
-    mapController.move(LatLng(cheapest['lat'], cheapest['lon']), 12.0);
+    mapController.move(LatLng(cheapest['lat'], cheapest['lon']), 13.0);
     showStationDetails(cheapest);
   }
 
@@ -344,7 +389,7 @@ class _MapScreenState extends State<MapScreen> {
             mapController: mapController,
             options: MapOptions(
               initialCenter: userPosition,
-              initialZoom: 10.0,
+              initialZoom: 11.0,
             ),
             children: [
               TileLayer(
@@ -353,6 +398,7 @@ class _MapScreenState extends State<MapScreen> {
               ),
               MarkerLayer(
                 markers: [
+                  // Logo et position GPS réelle de l'utilisateur
                   Marker(
                     point: userPosition,
                     width: 50,
@@ -371,6 +417,7 @@ class _MapScreenState extends State<MapScreen> {
                       ),
                     ),
                   ),
+                  // Toutes les stations d'Île-de-France avec leurs noms
                   ...stations.map((station) {
                     double currentPrice = getStationPrice(station);
                     return Marker(
@@ -497,19 +544,21 @@ class _MapScreenState extends State<MapScreen> {
               ],
             ),
           ),
+          // Bouton de recentrage GPS réel sur l'utilisateur
           Positioned(
             bottom: 30,
             right: 16,
             child: FloatingActionButton(
               backgroundColor: Colors.white,
               foregroundColor: Colors.blueAccent,
-              onPressed: () {
-                setState(() {
-                  currentCity = 'Rueil-Malmaison';
-                });
-                mapController.move(userPosition, 12.0);
-              },
-              child: const Icon(Icons.my_location),
+              onPressed: _determinePosition,
+              child: isLocating
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.my_location),
             ),
           ),
           Positioned(
