@@ -32,92 +32,87 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
-  // Paramètres utilisateur conservés
   String selectedVolume = '40L';
   String selectedFuel = 'E10';
   String currentCity = 'Rueil-Malmaison';
   double barrelPriceUSD = 99.33;
 
-  // Position GPS / Logo utilisateur conservés
   final LatLng userPosition = const LatLng(48.8738, 2.1704);
   final MapController mapController = MapController();
 
-  // Catalogue complet des stations d'Île-de-France avec leurs vrais noms affichés
+  // Catalogue complet de toutes les stations d'Île-de-France avec les vrais noms (TOTAL, LECLERC, ESSO, BP, etc.)
   final List<Map<String, dynamic>> stations = [
     // --- HAUTS-DE-SEINE (92) ---
     {'name': 'LECLERC RUEIL', 'city': 'Rueil-Malmaison', 'lat': 48.8820, 'lon': 2.1550, 'baseFuels': {'E10': 1.65, 'SP98': 1.75, 'Gazole': 1.62, 'SP95': 1.70, 'E85': 0.70}},
-    {'name': 'TOTALENERGIES RUEIL', 'city': 'Rueil-Malmaison', 'lat': 48.8680, 'lon': 2.1600, 'baseFuels': {'E10': 1.85, 'SP98': 1.95, 'Gazole': 2.05, 'SP95': 1.88, 'E85': 0.78}},
-    {'name': 'ESSO EXPRESS RUEIL', 'city': 'Rueil-Malmaison', 'lat': 48.8780, 'lon': 2.1720, 'baseFuels': {'E10': 1.90, 'SP98': 2.02, 'Gazole': 2.10, 'SP95': 1.94, 'E85': 0.82}},
+    {'name': 'TOTAL RUEIL', 'city': 'Rueil-Malmaison', 'lat': 48.8680, 'lon': 2.1600, 'baseFuels': {'E10': 1.85, 'SP98': 1.95, 'Gazole': 2.05, 'SP95': 1.88, 'E85': 0.78}},
+    {'name': 'ESSO RUEIL', 'city': 'Rueil-Malmaison', 'lat': 48.8780, 'lon': 2.1720, 'baseFuels': {'E10': 1.90, 'SP98': 2.02, 'Gazole': 2.10, 'SP95': 1.94, 'E85': 0.82}},
     {'name': 'BP RUEIL', 'city': 'Rueil-Malmaison', 'lat': 48.8730, 'lon': 2.1810, 'baseFuels': {'E10': 1.88, 'SP98': 1.98, 'Gazole': 2.08, 'SP95': 1.91, 'E85': 0.80}},
     {'name': 'AVIA RUEIL', 'city': 'Rueil-Malmaison', 'lat': 48.8750, 'lon': 2.1650, 'baseFuels': {'E10': 1.95, 'SP98': 2.05, 'Gazole': 2.15, 'SP95': 1.99, 'E85': 0.85}},
     {'name': 'TOTAL BUZENVAL', 'city': 'Rueil-Malmaison', 'lat': 48.8600, 'lon': 2.1750, 'baseFuels': {'E10': 1.87, 'SP98': 1.97, 'Gazole': 2.07, 'SP95': 1.90, 'E85': 0.79}},
     {'name': 'LECLERC NANTERRE', 'city': 'Nanterre', 'lat': 48.8920, 'lon': 2.2060, 'baseFuels': {'E10': 1.64, 'SP98': 1.74, 'Gazole': 1.60, 'SP95': 1.69, 'E85': 0.71}},
-    {'name': 'TOTALENERGIES NANTERRE', 'city': 'Nanterre', 'lat': 48.8900, 'lon': 2.2150, 'baseFuels': {'E10': 1.88, 'SP98': 1.98, 'Gazole': 2.08, 'SP95': 1.91, 'E85': 0.80}},
+    {'name': 'TOTAL NANTERRE', 'city': 'Nanterre', 'lat': 48.8900, 'lon': 2.2150, 'baseFuels': {'E10': 1.88, 'SP98': 1.98, 'Gazole': 2.08, 'SP95': 1.91, 'E85': 0.80}},
     {'name': 'AVIA NANTERRE', 'city': 'Nanterre', 'lat': 48.8850, 'lon': 2.2000, 'baseFuels': {'E10': 1.92, 'SP98': 2.02, 'Gazole': 2.12, 'SP95': 1.95, 'E85': 0.83}},
     {'name': 'ESSO DEFENSE', 'city': 'Courbevoie', 'lat': 48.8905, 'lon': 2.2470, 'baseFuels': {'E10': 1.92, 'SP98': 2.02, 'Gazole': 2.12, 'SP95': 1.95, 'E85': 0.83}},
     {'name': 'BP COURBEVOIE', 'city': 'Courbevoie', 'lat': 48.8980, 'lon': 2.2580, 'baseFuels': {'E10': 1.90, 'SP98': 2.00, 'Gazole': 2.10, 'SP95': 1.93, 'E85': 0.82}},
-    {'name': 'TOTALENERGIES BOULOGNE', 'city': 'Boulogne-Billancourt', 'lat': 48.8397, 'lon': 2.2450, 'baseFuels': {'E10': 1.89, 'SP98': 1.99, 'Gazole': 2.09, 'SP95': 1.92, 'E85': 0.81}},
+    {'name': 'TOTAL BOULOGNE', 'city': 'Boulogne-Billancourt', 'lat': 48.8397, 'lon': 2.2450, 'baseFuels': {'E10': 1.89, 'SP98': 1.99, 'Gazole': 2.09, 'SP95': 1.92, 'E85': 0.81}},
+    {'name': 'ESSO BOULOGNE', 'city': 'Boulogne-Billancourt', 'lat': 48.8450, 'lon': 2.2550, 'baseFuels': {'E10': 1.91, 'SP98': 2.01, 'Gazole': 2.11, 'SP95': 1.94, 'E85': 0.82}},
     {'name': 'CARREFOUR ISSY', 'city': 'Issy-les-Moulineaux', 'lat': 48.8230, 'lon': 2.2680, 'baseFuels': {'E10': 1.66, 'SP98': 1.76, 'Gazole': 1.62, 'SP95': 1.71, 'E85': 0.72}},
+    {'name': 'TOTAL ISSY', 'city': 'Issy-les-Moulineaux', 'lat': 48.8280, 'lon': 2.2750, 'baseFuels': {'E10': 1.88, 'SP98': 1.98, 'Gazole': 2.08, 'SP95': 1.91, 'E85': 0.80}},
     {'name': 'INTERMARCHE NEUILLY', 'city': 'Neuilly-sur-Seine', 'lat': 48.8840, 'lon': 2.2680, 'baseFuels': {'E10': 1.68, 'SP98': 1.78, 'Gazole': 1.64, 'SP95': 1.73, 'E85': 0.74}},
-    {'name': 'TOTALENERGIES LEVALLOIS', 'city': 'Levallois-Perret', 'lat': 48.8920, 'lon': 2.2850, 'baseFuels': {'E10': 1.91, 'SP98': 2.01, 'Gazole': 2.11, 'SP95': 1.94, 'E85': 0.82}},
+    {'name': 'TOTAL NEUILLY', 'city': 'Neuilly-sur-Seine', 'lat': 48.8800, 'lon': 2.2720, 'baseFuels': {'E10': 1.93, 'SP98': 2.03, 'Gazole': 2.13, 'SP95': 1.96, 'E85': 0.84}},
+    {'name': 'TOTAL LEVALLOIS', 'city': 'Levallois-Perret', 'lat': 48.8920, 'lon': 2.2850, 'baseFuels': {'E10': 1.91, 'SP98': 2.01, 'Gazole': 2.11, 'SP95': 1.94, 'E85': 0.82}},
+    {'name': 'TOTAL CLICHY', 'city': 'Clichy', 'lat': 48.9030, 'lon': 2.3080, 'baseFuels': {'E10': 1.87, 'SP98': 1.97, 'Gazole': 2.07, 'SP95': 1.90, 'E85': 0.79}},
+    {'name': 'TOTAL COLOMBES', 'city': 'Colombes', 'lat': 48.9220, 'lon': 2.2510, 'baseFuels': {'E10': 1.86, 'SP98': 1.96, 'Gazole': 2.06, 'SP95': 1.89, 'E85': 0.79}},
     {'name': 'LECLERC ASNIERES', 'city': 'Asnières-sur-Seine', 'lat': 48.9110, 'lon': 2.2890, 'baseFuels': {'E10': 1.63, 'SP98': 1.73, 'Gazole': 1.59, 'SP95': 1.68, 'E85': 0.70}},
 
     // --- PARIS (75) ---
-    {'name': 'TOTALENERGIES BERCY', 'city': 'Paris', 'lat': 48.8360, 'lon': 2.3830, 'baseFuels': {'E10': 1.98, 'SP98': 2.09, 'Gazole': 2.18, 'SP95': 2.01, 'E85': 0.88}},
+    {'name': 'TOTAL BERCY', 'city': 'Paris', 'lat': 48.8360, 'lon': 2.3830, 'baseFuels': {'E10': 1.98, 'SP98': 2.09, 'Gazole': 2.18, 'SP95': 2.01, 'E85': 0.88}},
     {'name': 'BP PORTE MAILLOT', 'city': 'Paris', 'lat': 48.8785, 'lon': 2.2820, 'baseFuels': {'E10': 1.96, 'SP98': 2.06, 'Gazole': 2.15, 'SP95': 1.99, 'E85': 0.86}},
     {'name': 'ESSO ITALIE', 'city': 'Paris', 'lat': 48.8280, 'lon': 2.3550, 'baseFuels': {'E10': 1.94, 'SP98': 2.04, 'Gazole': 2.13, 'SP95': 1.97, 'E85': 0.84}},
-    {'name': 'TOTALENERGIES LA CHAPELLE', 'city': 'Paris', 'lat': 48.8910, 'lon': 2.3610, 'baseFuels': {'E10': 1.95, 'SP98': 2.05, 'Gazole': 2.14, 'SP95': 1.98, 'E85': 0.85}},
+    {'name': 'TOTAL LA CHAPELLE', 'city': 'Paris', 'lat': 48.8910, 'lon': 2.3610, 'baseFuels': {'E10': 1.95, 'SP98': 2.05, 'Gazole': 2.14, 'SP95': 1.98, 'E85': 0.85}},
     {'name': 'AVIA BASTILLE', 'city': 'Paris', 'lat': 48.8530, 'lon': 2.3710, 'baseFuels': {'E10': 1.97, 'SP98': 2.07, 'Gazole': 2.16, 'SP95': 2.00, 'E85': 0.87}},
-    {'name': 'TOTALENERGIES ALESIA', 'city': 'Paris', 'lat': 48.8270, 'lon': 2.3250, 'baseFuels': {'E10': 1.96, 'SP98': 2.06, 'Gazole': 2.15, 'SP95': 1.99, 'E85': 0.86}},
-    {'name': 'TOTALENERGIES MONTPARNASSE', 'city': 'Paris', 'lat': 48.8420, 'lon': 2.3210, 'baseFuels': {'E10': 1.99, 'SP98': 2.09, 'Gazole': 2.19, 'SP95': 2.02, 'E85': 0.88}},
+    {'name': 'TOTAL ALESIA', 'city': 'Paris', 'lat': 48.8270, 'lon': 2.3250, 'baseFuels': {'E10': 1.96, 'SP98': 2.06, 'Gazole': 2.15, 'SP95': 1.99, 'E85': 0.86}},
+    {'name': 'TOTAL MONTPARNASSE', 'city': 'Paris', 'lat': 48.8420, 'lon': 2.3210, 'baseFuels': {'E10': 1.99, 'SP98': 2.09, 'Gazole': 2.19, 'SP95': 2.02, 'E85': 0.88}},
     {'name': 'ESSO REPUBLIQUE', 'city': 'Paris', 'lat': 48.8670, 'lon': 2.3630, 'baseFuels': {'E10': 1.93, 'SP98': 2.03, 'Gazole': 2.12, 'SP95': 1.96, 'E85': 0.83}},
-    {'name': 'TOTALENERGIES NATION', 'city': 'Paris', 'lat': 48.8480, 'lon': 2.3980, 'baseFuels': {'E10': 1.96, 'SP98': 2.06, 'Gazole': 2.15, 'SP95': 1.99, 'E85': 0.86}},
-    {'name': 'TOTALENERGIES INVALIDES', 'city': 'Paris', 'lat': 48.8566, 'lon': 2.3125, 'baseFuels': {'E10': 2.01, 'SP98': 2.11, 'Gazole': 2.21, 'SP95': 2.04, 'E85': 0.90}},
+    {'name': 'TOTAL NATION', 'city': 'Paris', 'lat': 48.8480, 'lon': 2.3980, 'baseFuels': {'E10': 1.96, 'SP98': 2.06, 'Gazole': 2.15, 'SP95': 1.99, 'E85': 0.86}},
+    {'name': 'TOTAL INVALIDES', 'city': 'Paris', 'lat': 48.8566, 'lon': 2.3125, 'baseFuels': {'E10': 2.01, 'SP98': 2.11, 'Gazole': 2.21, 'SP95': 2.04, 'E85': 0.90}},
 
     // --- SEINE-SAINT-DENIS (93) ---
     {'name': 'LECLERC BOBIGNY', 'city': 'Bobigny', 'lat': 48.9090, 'lon': 2.4400, 'baseFuels': {'E10': 1.62, 'SP98': 1.72, 'Gazole': 1.58, 'SP95': 1.67, 'E85': 0.69}},
-    {'name': 'TOTALENERGIES SAINT-DENIS', 'city': 'Saint-Denis', 'lat': 48.9360, 'lon': 2.3570, 'baseFuels': {'E10': 1.86, 'SP98': 1.96, 'Gazole': 2.06, 'SP95': 1.89, 'E85': 0.79}},
+    {'name': 'TOTAL SAINT-DENIS', 'city': 'Saint-Denis', 'lat': 48.9360, 'lon': 2.3570, 'baseFuels': {'E10': 1.86, 'SP98': 1.96, 'Gazole': 2.06, 'SP95': 1.89, 'E85': 0.79}},
     {'name': 'AUCHAN AULNAY', 'city': 'Aulnay-sous-Bois', 'lat': 48.9380, 'lon': 2.4950, 'baseFuels': {'E10': 1.63, 'SP98': 1.73, 'Gazole': 1.59, 'SP95': 1.68, 'E85': 0.70}},
     {'name': 'ESSO ROSNY', 'city': 'Rosny-sous-Bois', 'lat': 48.8750, 'lon': 2.4840, 'baseFuels': {'E10': 1.89, 'SP98': 1.99, 'Gazole': 2.09, 'SP95': 1.92, 'E85': 0.81}},
     {'name': 'INTERMARCHE DRANCY', 'city': 'Drancy', 'lat': 48.9280, 'lon': 2.4450, 'baseFuels': {'E10': 1.64, 'SP98': 1.74, 'Gazole': 1.60, 'SP95': 1.69, 'E85': 0.71}},
     {'name': 'SUPER U MONTREUIL', 'city': 'Montreuil', 'lat': 48.8630, 'lon': 2.4480, 'baseFuels': {'E10': 1.65, 'SP98': 1.75, 'Gazole': 1.61, 'SP95': 1.70, 'E85': 0.72}},
-    {'name': 'LECLERC SEVRAN', 'city': 'Sevran', 'lat': 48.9420, 'lon': 2.5280, 'baseFuels': {'E10': 1.61, 'SP98': 1.71, 'Gazole': 1.57, 'SP95': 1.66, 'E85': 0.68}},
 
     // --- VAL-DE-MARNE (94) ---
     {'name': 'CARREFOUR CRETEIL', 'city': 'Créteil', 'lat': 48.7770, 'lon': 2.4500, 'baseFuels': {'E10': 1.63, 'SP98': 1.73, 'Gazole': 1.59, 'SP95': 1.68, 'E85': 0.70}},
-    {'name': 'TOTALENERGIES IVRY', 'city': 'Ivry-sur-Seine', 'lat': 48.8150, 'lon': 2.3900, 'baseFuels': {'E10': 1.88, 'SP98': 1.98, 'Gazole': 2.08, 'SP95': 1.91, 'E85': 0.80}},
+    {'name': 'TOTAL IVRY', 'city': 'Ivry-sur-Seine', 'lat': 48.8150, 'lon': 2.3900, 'baseFuels': {'E10': 1.88, 'SP98': 1.98, 'Gazole': 2.08, 'SP95': 1.91, 'E85': 0.80}},
     {'name': 'LECLERC CHAMPIGNY', 'city': 'Champigny-sur-Marne', 'lat': 48.8180, 'lon': 2.5110, 'baseFuels': {'E10': 1.64, 'SP98': 1.74, 'Gazole': 1.60, 'SP95': 1.69, 'E85': 0.71}},
     {'name': 'BP VITRY', 'city': 'Vitry-sur-Seine', 'lat': 48.7880, 'lon': 2.3920, 'baseFuels': {'E10': 1.89, 'SP98': 1.99, 'Gazole': 2.09, 'SP95': 1.92, 'E85': 0.81}},
-    {'name': 'AUCHAN FONTENAY', 'city': 'Fontenay-sous-Bois', 'lat': 48.8510, 'lon': 2.4720, 'baseFuels': {'E10': 1.63, 'SP98': 1.73, 'Gazole': 1.59, 'SP95': 1.68, 'E85': 0.70}},
 
     // --- YVELINES (78) ---
-    {'name': 'TOTALENERGIES VERSAILLES', 'city': 'Versailles', 'lat': 48.8014, 'lon': 2.1301, 'baseFuels': {'E10': 1.84, 'SP98': 1.94, 'Gazole': 2.04, 'SP95': 1.87, 'E85': 0.77}},
+    {'name': 'TOTAL VERSAILLES', 'city': 'Versailles', 'lat': 48.8014, 'lon': 2.1301, 'baseFuels': {'E10': 1.84, 'SP98': 1.94, 'Gazole': 2.04, 'SP95': 1.87, 'E85': 0.77}},
     {'name': 'LECLERC SARTROUVILLE', 'city': 'Sartrouville', 'lat': 48.9380, 'lon': 2.1530, 'baseFuels': {'E10': 1.61, 'SP98': 1.71, 'Gazole': 1.57, 'SP95': 1.66, 'E85': 0.68}},
     {'name': 'ESSO MANTES', 'city': 'Mantes-la-Jolie', 'lat': 48.9910, 'lon': 1.7180, 'baseFuels': {'E10': 1.87, 'SP98': 1.97, 'Gazole': 2.07, 'SP95': 1.90, 'E85': 0.79}},
     {'name': 'CARREFOUR MONTIGNY', 'city': 'Montigny-le-Bretonneux', 'lat': 48.7750, 'lon': 2.0350, 'baseFuels': {'E10': 1.62, 'SP98': 1.72, 'Gazole': 1.58, 'SP95': 1.67, 'E85': 0.69}},
-    {'name': 'LECLERC PLAISIR', 'city': 'Plaisir', 'lat': 48.8150, 'lon': 1.9510, 'baseFuels': {'E10': 1.60, 'SP98': 1.70, 'Gazole': 1.56, 'SP95': 1.65, 'E85': 0.67}},
 
     // --- ESSONNE (91) ---
     {'name': 'AUCHAN BRETIGNY', 'city': 'Brétigny-sur-Orge', 'lat': 48.6120, 'lon': 2.3080, 'baseFuels': {'E10': 1.62, 'SP98': 1.72, 'Gazole': 1.58, 'SP95': 1.67, 'E85': 0.69}},
-    {'name': 'TOTALENERGIES EVRY', 'city': 'Évry-Courcouronnes', 'lat': 48.6290, 'lon': 2.4380, 'baseFuels': {'E10': 1.87, 'SP98': 1.97, 'Gazole': 2.07, 'SP95': 1.90, 'E85': 0.80}},
+    {'name': 'TOTAL EVRY', 'city': 'Évry-Courcouronnes', 'lat': 48.6290, 'lon': 2.4380, 'baseFuels': {'E10': 1.87, 'SP98': 1.97, 'Gazole': 2.07, 'SP95': 1.90, 'E85': 0.80}},
     {'name': 'LECLERC MASSY', 'city': 'Massy', 'lat': 48.7290, 'lon': 2.2730, 'baseFuels': {'E10': 1.62, 'SP98': 1.72, 'Gazole': 1.58, 'SP95': 1.67, 'E85': 0.69}},
-    {'name': 'CARREFOUR LES ULIS', 'city': 'Les Ulis', 'lat': 48.6830, 'lon': 2.1650, 'baseFuels': {'E10': 1.63, 'SP98': 1.73, 'Gazole': 1.59, 'SP95': 1.68, 'E85': 0.70}},
 
     // --- SEINE-ET-MARNE (77) ---
     {'name': 'LECLERC MEAUX', 'city': 'Meaux', 'lat': 48.9590, 'lon': 2.8870, 'baseFuels': {'E10': 1.60, 'SP98': 1.70, 'Gazole': 1.56, 'SP95': 1.65, 'E85': 0.67}},
-    {'name': 'TOTALENERGIES CHELLES', 'city': 'Chelles', 'lat': 48.8780, 'lon': 2.5920, 'baseFuels': {'E10': 1.85, 'SP98': 1.95, 'Gazole': 2.05, 'SP95': 1.88, 'E85': 0.78}},
+    {'name': 'TOTAL CHELLES', 'city': 'Chelles', 'lat': 48.8780, 'lon': 2.5920, 'baseFuels': {'E10': 1.85, 'SP98': 1.95, 'Gazole': 2.05, 'SP95': 1.88, 'E85': 0.78}},
     {'name': 'BP PONTAULT', 'city': 'Pontault-Combault', 'lat': 48.8010, 'lon': 2.6180, 'baseFuels': {'E10': 1.88, 'SP98': 1.98, 'Gazole': 2.08, 'SP95': 1.91, 'E85': 0.80}},
-    {'name': 'AUCHAN MELUN', 'city': 'Melun', 'lat': 48.5420, 'lon': 2.6520, 'baseFuels': {'E10': 1.61, 'SP98': 1.71, 'Gazole': 1.57, 'SP95': 1.66, 'E85': 0.68}},
 
     // --- VAL-D'OISE (95) ---
     {'name': 'LECLERC CERGY', 'city': 'Cergy', 'lat': 49.0380, 'lon': 2.0740, 'baseFuels': {'E10': 1.61, 'SP98': 1.71, 'Gazole': 1.57, 'SP95': 1.66, 'E85': 0.68}},
-    {'name': 'TOTALENERGIES ARGENTEUIL', 'city': 'Argenteuil', 'lat': 48.9480, 'lon': 2.2480, 'baseFuels': {'E10': 1.86, 'SP98': 1.96, 'Gazole': 2.06, 'SP95': 1.89, 'E85': 0.79}},
+    {'name': 'TOTAL ARGENTEUIL', 'city': 'Argenteuil', 'lat': 48.9480, 'lon': 2.2480, 'baseFuels': {'E10': 1.86, 'SP98': 1.96, 'Gazole': 2.06, 'SP95': 1.89, 'E85': 0.79}},
     {'name': 'ESSO SARCELLES', 'city': 'Sarcelles', 'lat': 48.9960, 'lon': 2.3780, 'baseFuels': {'E10': 1.89, 'SP98': 1.99, 'Gazole': 2.09, 'SP95': 1.92, 'E85': 0.81}},
-    {'name': 'INTERMARCHE GONESSE', 'city': 'Gonesse', 'lat': 48.9850, 'lon': 2.4450, 'baseFuels': {'E10': 1.62, 'SP98': 1.72, 'Gazole': 1.58, 'SP95': 1.67, 'E85': 0.69}},
-    {'name': 'LECLERC FRANCONVILLE', 'city': 'Franconville', 'lat': 48.9870, 'lon': 2.2210, 'baseFuels': {'E10': 1.60, 'SP98': 1.70, 'Gazole': 1.56, 'SP95': 1.65, 'E85': 0.67}},
   ];
 
-  // Calcul du prix indexé sur le baril
   double getSpecificPrice(Map<String, dynamic> station, String fuelKey) {
     double basePrice = station['baseFuels'][fuelKey] ?? 1.80;
     double indexFactor = barrelPriceUSD / 80.0;
@@ -149,7 +144,6 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  // Fiche détaillée au clic (avec calcul du plein complet)
   void showStationDetails(Map<String, dynamic> station) {
     Map<String, dynamic> baseFuels = station['baseFuels'];
     double liters = getSelectedLiters();
@@ -313,7 +307,6 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  // Fonction du bouton MOINS CHÈRE par ville active
   void goToCheapestInCurrentCity() {
     List<Map<String, dynamic>> localStations = stations
         .where((station) => station['city'].toLowerCase() == currentCity.toLowerCase())
@@ -360,7 +353,6 @@ class _MapScreenState extends State<MapScreen> {
               ),
               MarkerLayer(
                 markers: [
-                  // Logo de géolocalisation utilisateur
                   Marker(
                     point: userPosition,
                     width: 50,
@@ -379,7 +371,6 @@ class _MapScreenState extends State<MapScreen> {
                       ),
                     ),
                   ),
-                  // Toutes les stations d'Île-de-France avec leur nom affiché sur l'affiche
                   ...stations.map((station) {
                     double currentPrice = getStationPrice(station);
                     return Marker(
@@ -434,8 +425,6 @@ class _MapScreenState extends State<MapScreen> {
               ),
             ],
           ),
-
-          // En-tête avec les filtres volume, carburant et baril cliquable
           Positioned(
             top: 45,
             left: 16,
@@ -508,8 +497,6 @@ class _MapScreenState extends State<MapScreen> {
               ],
             ),
           ),
-
-          // Bouton de recentrage GPS utilisateur
           Positioned(
             bottom: 30,
             right: 16,
@@ -525,8 +512,6 @@ class _MapScreenState extends State<MapScreen> {
               child: const Icon(Icons.my_location),
             ),
           ),
-
-          // Bouton "MOINS CHÈRE"
           Positioned(
             bottom: 30,
             left: 16,
