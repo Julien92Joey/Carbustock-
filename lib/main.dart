@@ -84,12 +84,12 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  // Chargement de toutes les stations de France
+  // Chargement de toutes les stations de France (URL corrigée)
   Future<void> fetchAllStations() async {
     setState(() => isLoading = true);
     try {
       final response = await http.get(
-        Uri.parse('https://prix-carburants.gouv.fr/api/v2/records/1.0/search/?dataset=prix-des-carburants-j-1&rows=10000'),
+        Uri.parse('https://prix-carburants.gouv.fr/api/records/1.0/search/?dataset=prix-des-carburants-j-1&rows=10000'),
       );
 
       if (response.statusCode == 200) {
@@ -144,7 +144,6 @@ class _MapScreenState extends State<MapScreen> {
   void findCheapestInCurrentCity() {
     if (stations.isEmpty) return;
 
-    // 1. Trouver la station la plus proche de l'utilisateur pour identifier sa ville actuelle
     String? currentCity;
     double minDistance = double.infinity;
 
@@ -161,7 +160,6 @@ class _MapScreenState extends State<MapScreen> {
 
     if (currentCity == null) return;
 
-    // 2. Chercher la station la moins chère pour le carburant sélectionné dans cette même ville
     Map<String, dynamic>? cheapestRecord;
     double minPrice = double.infinity;
 
@@ -179,7 +177,6 @@ class _MapScreenState extends State<MapScreen> {
       }
     }
 
-    // 3. Afficher le résultat sur la carte et ouvrir les détails
     if (cheapestRecord != null) {
       LatLng? coords = getStationCoordinates(cheapestRecord);
       if (coords != null) {
@@ -288,7 +285,7 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     List<Marker> markers = [];
 
-    // Marqueur de position utilisateur (précis)
+    // Marqueur de position utilisateur
     markers.add(
       Marker(
         point: userPosition,
@@ -306,7 +303,7 @@ class _MapScreenState extends State<MapScreen> {
       ),
     );
 
-    // Ajout de toutes les stations de France
+    // Ajout de toutes les stations
     for (var record in stations) {
       LatLng? coords = getStationCoordinates(record);
       double? price = getStationPrice(record);
@@ -379,7 +376,6 @@ class _MapScreenState extends State<MapScreen> {
                 ),
               ),
             ),
-          // En-tête : Volume, Carburant et Bouton Moins Cher
           Positioned(
             top: 45,
             left: 16,
@@ -433,7 +429,6 @@ class _MapScreenState extends State<MapScreen> {
               ],
             ),
           ),
-          // Bouton de géolocalisation ultra-précise
           Positioned(
             bottom: 30,
             right: 16,
