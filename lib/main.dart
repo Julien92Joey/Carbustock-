@@ -35,7 +35,7 @@ class _MapScreenState extends State<MapScreen> {
   String selectedVolume = '40L';
   String selectedFuel = 'E10';
 
-  LatLng userPosition = const LatLng(48.8878, 2.1807);
+  LatLng userPosition = const LatLng(48.8878, 2.1807); // Position par défaut (ex: Île-de-France)
   final MapController mapController = MapController();
   final Distance distanceCalculator = const Distance();
 
@@ -50,7 +50,7 @@ class _MapScreenState extends State<MapScreen> {
     fetchAllStations();
   }
 
-  // Géolocalisation ultra-précise au mètre près
+  // Géolocalisation de l'utilisateur
   Future<void> _getUserLocation() async {
     setState(() => isLocating = true);
     try {
@@ -84,7 +84,7 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  // Chargement de toutes les stations de France (URL corrigée)
+  // Chargement de toutes les stations depuis l'API officielle
   Future<void> fetchAllStations() async {
     setState(() => isLoading = true);
     try {
@@ -140,7 +140,7 @@ class _MapScreenState extends State<MapScreen> {
     return null;
   }
 
-  // Trouve la station la moins chère dans la ville où se trouve l'utilisateur
+  // Trouver la station la moins chère dans la ville actuelle
   void findCheapestInCurrentCity() {
     if (stations.isEmpty) return;
 
@@ -260,7 +260,7 @@ class _MapScreenState extends State<MapScreen> {
                         label: const Text('Waze'),
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
@@ -285,7 +285,7 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     List<Marker> markers = [];
 
-    // Marqueur de position utilisateur
+    // Marqueur utilisateur
     markers.add(
       Marker(
         point: userPosition,
@@ -303,7 +303,7 @@ class _MapScreenState extends State<MapScreen> {
       ),
     );
 
-    // Ajout de toutes les stations
+    // Ajout des marqueurs de stations
     for (var record in stations) {
       LatLng? coords = getStationCoordinates(record);
       double? price = getStationPrice(record);
@@ -437,7 +437,7 @@ class _MapScreenState extends State<MapScreen> {
               foregroundColor: Colors.blue,
               onPressed: _getUserLocation,
               child: isLocating
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                  ? const SizedBox(width:, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) // correction syntaxe éventuelle si besoin
                   : const Icon(Icons.my_location),
             ),
           ),
