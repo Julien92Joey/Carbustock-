@@ -390,11 +390,13 @@ class _MapScreenState extends State<MapScreen> {
         children: [
           FlutterMap(
             mapController: _mapController,
-            options: MapOptions(initialCenter: _currentCenter, initialZoom: 12.0),
+            options: MapOptions(
+              initialCenter: _currentCenter, 
+              initialZoom: 12.0,
+            ),
             children: [
               TileLayer(
-                urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/positron/{z}/{x}/{y}{r}.png',
-                subdomains: const ['a', 'b', 'c', 'd'],
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.example.carbustock',
               ),
               MarkerLayer(
@@ -413,12 +415,27 @@ class _MapScreenState extends State<MapScreen> {
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(6),
                           border: Border.all(color: color, width: 1.5),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.15),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
                         ),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(station.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 7.5, fontWeight: FontWeight.bold)),
-                            Text(price != null ? '${price.toStringAsFixed(2)}€' : 'RPT', style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold)),
+                            Text(
+                              station.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 7.5, fontWeight: FontWeight.bold),
+                            ),
+                            Text(
+                              price != null ? '${price.toStringAsFixed(2)}€' : 'RPT',
+                              style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold),
+                            ),
                           ],
                         ),
                       ),
