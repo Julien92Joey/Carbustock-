@@ -32,7 +32,7 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
-  String selectedFuel = 'SP95'; // Carburant actif par défaut
+  String selectedFuel = 'SP95';
 
   LatLng userPosition = const LatLng(48.8566, 2.3522); // Paris par défaut
   final MapController mapController = MapController();
@@ -49,7 +49,6 @@ class _MapScreenState extends State<MapScreen> {
     fetchAllStations();
   }
 
-  // 1. Géolocalisation précise au mètre près
   Future<void> _getUserLocation() async {
     setState(() => isLocating = true);
     try {
@@ -83,20 +82,29 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  // 2. Récupérer TOUTES les stations d'Île-de-France
+  // Récupération et parsing blindé des stations
   Future<void> fetchAllStations() async {
     setState(() => isLoading = true);
     try {
       final response = await http.get(
-        Uri.parse('https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records?limit=100'),
+        Uri.parse('https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records?limit=1000'),
       );
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        setState(() {
-          stations = data['results'] ?? [];
-          isLoading = false;
-        });
+        List allResults = data['results'] ?? [];
+
+        // Filtrage local Île-de-France élargi et sécurisé
+        stations = allResults.where((record) {
+          LatLng? coords = getStationCoordinates(record);
+          if (coords == null) return false;
+          return coords.latitude >= 48.15 && 
+                 coords.latitude <= 49.25 && 
+                 coords.longitude >= 1.45 && 
+                 coords.longitude <= 3.55;
+        }).toList();
+
+        setState(() => isLoading = false);
       } else {
         setState(() => isLoading = false);
       }
@@ -105,7 +113,6 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  // Récupérer le prix d'un carburant spécifique pour une station
   double? getPriceForFuel(dynamic record, String fuelName) {
     try {
       var prices = record['prix'];
@@ -120,13 +127,31 @@ class _MapScreenState extends State<MapScreen> {
     return null;
   }
 
-  // Extraire les coordonnées GPS de la station
+  // Extraction robuste des coordonnées (gère tous les formats possibles de l'API)
   LatLng? getStationCoordinates(dynamic record) {
     try {
-      var geom = record['geom'] ?? record['coor'];
-      if (geom != null && geom['lat'] != null && geom['lon'] != null) {
-        return LatLng(geom['lat'], geom['lon']);
+      // 1. Format geom standard {lat: ..., lon: ...}
+      var geom = record['geom'];
+      if (geom != null) {
+        if (geom['lat'] != null && geom['lon'] != null) {
+          return LatLng(double.parse(geom['lat'].toString()), double.parse(geom['lon'].toString()));
+        }
+        // Format geom de type GeoJSON {lat: ..., lon: ...} ou coordinates [lon, lat]
+        if (geom['coordinates'] is List && geom['coordinates'].length >= 2) {
+          return LatLng(
+            double.parse(geom['coordinates'][1].toString()),
+            double.parse(geom['coordinates'][0].toString()),
+          );
+        }
       }
+
+      // 2. Format coor
+      var coor = record['coor'];
+      if (coor != null && coor['lat'] != null && coor['lon'] != null) {
+        return LatLng(double.parse(coor['lat'].toString()), double.parse(coor['lon'].toString()));
+      }
+
+      // 3. Champs directs latitude / longitude
       if (record['latitude'] != null && record['longitude'] != null) {
         return LatLng(
           double.parse(record['latitude'].toString()),
@@ -137,23 +162,19 @@ class _MapScreenState extends State<MapScreen> {
     return null;
   }
 
-  // 3. Bouton "Station la moins chère" : filtre par zone géographique autour de l'utilisateur (ex: rayon de 15km)
   void findCheapestInUserZone() {
     if (stations.isEmpty) return;
 
     dynamic cheapestRecord;
     double minPrice = double.infinity;
-    double maxRadiusMeters = 15000; // Rayon de 15 km autour de ta position GPS
+    double maxRadiusMeters = 15000; 
 
     for (var record in stations) {
       LatLng? coords = getStationCoordinates(record);
       double? price = getPriceForFuel(record, selectedFuel);
 
       if (coords != null && price != null) {
-        // Calcul de la distance entre ta position et la station
         double distance = distanceCalculator.as(LengthUnit.Meter, userPosition, coords);
-
-        // Si la station est dans ta zone et propose un prix plus bas
         if (distance <= maxRadiusMeters && price < minPrice) {
           minPrice = price;
           cheapestRecord = record;
@@ -168,10 +189,22 @@ class _MapScreenState extends State<MapScreen> {
       }
       showAllFuelPrices(cheapestRecord);
     } else {
-      // Si aucune station n'est trouvée dans le rayon de 15km, on élargit ou prévient l'utilisateur
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Aucune station trouvée à proximité pour le $selectedFuel')),
-      );
+      for (var record in stations) {
+        double? price = getPriceForFuel(record, selectedFuel);
+        if (price != null && price < minPrice) {
+          minPrice = price;
+          cheapestRecord = record;
+        }
+      }
+      if (cheapestRecord != null) {
+        LatLng? coords = getStationCoordinates(cheapestRecord);
+        if (coords != null) mapController.move(coords, 12.0);
+        showAllFuelPrices(cheapestRecord);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Aucune station trouvée pour le $selectedFuel')),
+        );
+      }
     }
   }
 
@@ -189,7 +222,6 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  // 4. Panneau détaillant TOUTES les essences proposées par la station
   void showAllFuelPrices(dynamic record) {
     String name = record['nom'] ?? record['adresse']?['ligne'] ?? 'Station service';
     String city = record['ville'] ?? record['adresse']?['ville'] ?? '';
@@ -273,7 +305,6 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     List<Marker> markers = [];
 
-    // Marqueur de l'utilisateur
     markers.add(
       Marker(
         point: userPosition,
@@ -291,7 +322,6 @@ class _MapScreenState extends State<MapScreen> {
       ),
     );
 
-    // Marqueurs de TOUTES les stations
     for (var record in stations) {
       LatLng? coords = getStationCoordinates(record);
       double? price = getPriceForFuel(record, selectedFuel);
@@ -355,7 +385,7 @@ class _MapScreenState extends State<MapScreen> {
                     children: [
                       SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
                       SizedBox(width: 10),
-                      Text('Chargement de toutes les stations...', style: TextStyle(color: Colors.white, fontSize: 12)),
+                      Text('Chargement des stations d\'IDF...', style: TextStyle(color: Colors.white, fontSize: 12)),
                     ],
                   ),
                 ),
