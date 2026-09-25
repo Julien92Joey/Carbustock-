@@ -6,7 +6,6 @@ class Station {
   final double longitude;
   final Map<String, double> prices;
   final List<String> shortages;
-  double? distance;
 
   Station({
     required this.id,
@@ -16,6 +15,5 @@ class Station {
     required this.longitude,
     required this.prices,
     required this.shortages,
-    this.distance,
   });
 }
