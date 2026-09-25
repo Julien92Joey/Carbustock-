@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -14,7 +16,7 @@ class CarbuStockApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'CarbuStock Pro',
+      title: 'CarbuStock',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(primarySwatch: Colors.blue),
       home: const MapScreen(),
@@ -30,35 +32,24 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
-  int selectedCapacity = 40; // de 40L à 100L
-  String selectedFuel = 'E10'; // E10, SP98, SP95, Gazole, E85
+  String selectedFuel = 'SP95'; // Carburant actif par défaut
 
   LatLng userPosition = const LatLng(48.8566, 2.3522); // Paris par défaut
   final MapController mapController = MapController();
   final Distance distanceCalculator = const Distance();
 
+  List<dynamic> stations = [];
+  bool isLoading = true;
   bool isLocating = false;
-
-  // Liste garantie et complète de stations d'Île-de-France avec toutes les marques et prix
-  final List<Map<String, dynamic>> stations = [
-    {'nom': 'TotalEnergies Paris Étoile', 'ville': 'PARIS', 'lat': 48.8738, 'lon': 2.2950, 'prix_e10': 1.859, 'prix_sp98': 1.949, 'prix_sp95': 1.889, 'prix_gazole': 1.769, 'prix_e85': 0.829},
-    {'nom': 'Carrefour Auteuil', 'ville': 'PARIS', 'lat': 48.8460, 'lon': 2.2600, 'prix_e10': 1.799, 'prix_sp98': 1.899, 'prix_sp95': 1.829, 'prix_gazole': 1.719, 'prix_e85': 0.799},
-    {'nom': 'E.Leclerc Rueil-Malmaison', 'ville': 'RUEIL-MALMAISON', 'lat': 48.8872, 'lon': 2.1706, 'prix_e10': 1.749, 'prix_sp98': 1.849, 'prix_sp95': 1.789, 'prix_gazole': 1.689, 'prix_e85': 0.779},
-    {'nom': 'Shell Nanterre La Défense', 'ville': 'NANTERRE', 'lat': 48.8924, 'lon': 2.2065, 'prix_e10': 1.829, 'prix_sp98': 1.929, 'prix_sp95': 1.859, 'prix_gazole': 1.749, 'prix_e85': 0.819},
-    {'nom': 'Auchan Puteaux', 'ville': 'PUTEAUX', 'lat': 48.8920, 'lon': 2.2380, 'prix_e10': 1.779, 'prix_sp98': 1.879, 'prix_sp95': 1.809, 'prix_gazole': 1.709, 'prix_e85': 0.789},
-    {'nom': 'BP Boulogne-Billancourt', 'ville': 'BOULOGNE-BILLANCOURT', 'lat': 48.8397, 'lon': 2.2410, 'prix_e10': 1.819, 'prix_sp98': 1.919, 'prix_sp95': 1.849, 'prix_gazole': 1.739, 'prix_e85': 0.809},
-    {'nom': 'Intermarché Versailles', 'ville': 'VERSAILLES', 'lat': 48.8014, 'lon': 2.1301, 'prix_e10': 1.739, 'prix_sp98': 1.839, 'prix_sp95': 1.779, 'prix_gazole': 1.679, 'prix_e85': 0.769},
-    {'nom': 'Esso Saint-Cloud', 'ville': 'SAINT-CLOUD', 'lat': 48.8471, 'lon': 2.2137, 'prix_e10': 1.839, 'prix_sp98': 1.939, 'prix_sp95': 1.869, 'prix_gazole': 1.759, 'prix_e85': 0.829},
-    {'nom': 'TotalEnergies Neuilly', 'ville': 'NEUILLY-SUR-SEINE', 'lat': 48.8844, 'lon': 2.2683, 'prix_e10': 1.869, 'prix_sp98': 1.959, 'prix_sp95': 1.899, 'prix_gazole': 1.779, 'prix_e85': 0.839},
-  ];
 
   @override
   void initState() {
     super.initState();
     _getUserLocation();
+    fetchAllStations();
   }
 
-  // Géolocalisation précise au mètre près
+  // 1. Géolocalisation précise au mètre près
   Future<void> _getUserLocation() async {
     setState(() => isLocating = true);
     try {
@@ -92,34 +83,78 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  double? getStationPrice(Map<String, dynamic> record) {
-    String key = 'prix_${selectedFuel.toLowerCase()}';
-    return record[key] != null ? (record[key] as num).toDouble() : null;
+  // 2. Récupérer TOUTES les stations d'Île-de-France
+  Future<void> fetchAllStations() async {
+    setState(() => isLoading = true);
+    try {
+      final response = await http.get(
+        Uri.parse('https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/records?limit=100'),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        setState(() {
+          stations = data['results'] ?? [];
+          isLoading = false;
+        });
+      } else {
+        setState(() => isLoading = false);
+      }
+    } catch (e) {
+      setState(() => isLoading = false);
+    }
   }
 
-  // Fonction "Moins cher dans ma ville"
-  void findCheapestInCurrentCity() {
-    String? currentCity;
-    double minDistance = double.infinity;
-
-    for (var record in stations) {
-      LatLng coords = LatLng(record['lat'], record['lon']);
-      double dist = distanceCalculator.as(LengthUnit.Meter, userPosition, coords);
-      if (dist < minDistance) {
-        minDistance = dist;
-        currentCity = record['ville'].toString().toUpperCase();
+  // Récupérer le prix d'un carburant spécifique pour une station
+  double? getPriceForFuel(dynamic record, String fuelName) {
+    try {
+      var prices = record['prix'];
+      if (prices is List) {
+        for (var p in prices) {
+          if ((p['nom'] ?? '').toString().toUpperCase() == fuelName.toUpperCase()) {
+            return (p['valeur'] as num).toDouble();
+          }
+        }
       }
-    }
+    } catch (_) {}
+    return null;
+  }
 
-    if (currentCity == null) return;
+  // Extraire les coordonnées GPS de la station
+  LatLng? getStationCoordinates(dynamic record) {
+    try {
+      var geom = record['geom'] ?? record['coor'];
+      if (geom != null && geom['lat'] != null && geom['lon'] != null) {
+        return LatLng(geom['lat'], geom['lon']);
+      }
+      if (record['latitude'] != null && record['longitude'] != null) {
+        return LatLng(
+          double.parse(record['latitude'].toString()),
+          double.parse(record['longitude'].toString()),
+        );
+      }
+    } catch (_) {}
+    return null;
+  }
 
-    Map<String, dynamic>? cheapestRecord;
+  // 3. Bouton "Station la moins chère" : filtre par zone géographique autour de l'utilisateur (ex: rayon de 15km)
+  void findCheapestInUserZone() {
+    if (stations.isEmpty) return;
+
+    dynamic cheapestRecord;
     double minPrice = double.infinity;
+    double maxRadiusMeters = 15000; // Rayon de 15 km autour de ta position GPS
 
     for (var record in stations) {
-      if (record['ville'].toString().toUpperCase() == currentCity) {
-        double? price = getStationPrice(record);
-        if (price != null && price < minPrice) {
+      LatLng? coords = getStationCoordinates(record);
+      double? price = getPriceForFuel(record, selectedFuel);
+
+      if (coords != null && price != null) {
+        // Calcul de la distance entre ta position et la station
+        double distance = distanceCalculator.as(LengthUnit.Meter, userPosition, coords);
+
+        // Si la station est dans ta zone et propose un prix plus bas
+        if (distance <= maxRadiusMeters && price < minPrice) {
           minPrice = price;
           cheapestRecord = record;
         }
@@ -127,9 +162,16 @@ class _MapScreenState extends State<MapScreen> {
     }
 
     if (cheapestRecord != null) {
-      LatLng coords = LatLng(cheapestRecord['lat'], cheapestRecord['lon']);
-      mapController.move(coords, 15.0);
-      showStationDetails(cheapestRecord);
+      LatLng? coords = getStationCoordinates(cheapestRecord);
+      if (coords != null) {
+        mapController.move(coords, 14.0);
+      }
+      showAllFuelPrices(cheapestRecord);
+    } else {
+      // Si aucune station n'est trouvée dans le rayon de 15km, on élargit ou prévient l'utilisateur
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Aucune station trouvée à proximité pour le $selectedFuel')),
+      );
     }
   }
 
@@ -147,13 +189,13 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  void showStationDetails(Map<String, dynamic> record) {
-    String name = record['nom'];
-    String city = record['ville'];
-    double? price = getStationPrice(record);
-    double total = price != null ? price * selectedCapacity : 0.0;
-    double lat = record['lat'];
-    double lon = record['lon'];
+  // 4. Panneau détaillant TOUTES les essences proposées par la station
+  void showAllFuelPrices(dynamic record) {
+    String name = record['nom'] ?? record['adresse']?['ligne'] ?? 'Station service';
+    String city = record['ville'] ?? record['adresse']?['ville'] ?? '';
+    LatLng? coords = getStationCoordinates(record);
+
+    List<String> fuels = ['SP95', 'SP98', 'E10', 'Gazole', 'E85'];
 
     showModalBottomSheet(
       context: context,
@@ -170,49 +212,56 @@ class _MapScreenState extends State<MapScreen> {
               Text(name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               Text('Ville : $city', style: const TextStyle(color: Colors.grey)),
               const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('Plein de ${selectedCapacity}L ($selectedFuel) :', style: const TextStyle(fontWeight: FontWeight.bold)),
-                    Text(price != null ? '${total.toStringAsFixed(2)} €' : 'N/C', 
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blue)),
-                  ],
-                ),
+              const Text('Tous les prix disponibles :', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              const SizedBox(height: 8),
+              Column(
+                children: fuels.map((fuel) {
+                  double? price = getPriceForFuel(record, fuel);
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(fuel, style: const TextStyle(fontWeight: FontWeight.w500)),
+                        Text(price != null ? '${price.toStringAsFixed(3)} €' : 'Non disponible',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: price != null ? Colors.black87 : Colors.grey,
+                            )),
+                      ],
+                    ),
+                  );
+                }).toList(),
               ),
               const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.cyan, foregroundColor: Colors.white),
-                      onPressed: () {
-                        Navigator.pop(context);
-                        openWaze(lat, lon);
-                      },
-                      icon: const Icon(Icons.navigation),
-                      label: const Text('Waze'),
+              if (coords != null)
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.cyan, foregroundColor: Colors.white),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          openWaze(coords.latitude, coords.longitude);
+                        },
+                        icon: const Icon(Icons.navigation),
+                        label: const Text('Waze'),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-                      onPressed: () {
-                        Navigator.pop(context);
-                        openGoogleMaps(lat, lon);
-                      },
-                      icon: const Icon(Icons.map),
-                      label: const Text('Google Maps'),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          openGoogleMaps(coords.latitude, coords.longitude);
+                        },
+                        icon: const Icon(Icons.map),
+                        label: const Text('Google Maps'),
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
             ],
           ),
         );
@@ -224,7 +273,7 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     List<Marker> markers = [];
 
-    // Marqueur position utilisateur
+    // Marqueur de l'utilisateur
     markers.add(
       Marker(
         point: userPosition,
@@ -242,28 +291,30 @@ class _MapScreenState extends State<MapScreen> {
       ),
     );
 
-    // Ajout des marqueurs de stations sous forme de pancarte lisible
+    // Marqueurs de TOUTES les stations
     for (var record in stations) {
-      double? price = getStationPrice(record);
-      if (price != null) {
+      LatLng? coords = getStationCoordinates(record);
+      double? price = getPriceForFuel(record, selectedFuel);
+
+      if (coords != null && price != null) {
         markers.add(
           Marker(
-            point: LatLng(record['lat'], record['lon']),
-            width: 75,
-            height: 32,
+            point: coords,
+            width: 70,
+            height: 30,
             child: GestureDetector(
-              onTap: () => showStationDetails(record),
+              onTap: () => showAllFuelPrices(record),
               child: Container(
                 decoration: BoxDecoration(
                   color: Colors.amber.shade100,
                   borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: Colors.black87, width: 1.2),
+                  border: Border.all(color: Colors.black87, width: 1),
                   boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 2)],
                 ),
                 child: Center(
                   child: Text(
                     '${price.toStringAsFixed(3)}€',
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87),
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black87),
                   ),
                 ),
               ),
@@ -290,40 +341,49 @@ class _MapScreenState extends State<MapScreen> {
               MarkerLayer(markers: markers),
             ],
           ),
+          if (isLoading)
+            Positioned(
+              top: 130,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(20)),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
+                      SizedBox(width: 10),
+                      Text('Chargement de toutes les stations...', style: TextStyle(color: Colors.white, fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           Positioned(
             top: 45,
             left: 16,
             right: 16,
             child: Column(
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)]),
-                      child: DropdownButton<int>(
-                        value: selectedCapacity,
-                        underline: const SizedBox(),
-                        items: List.generate(7, (index) => (index + 4) * 10)
-                            .map((v) => DropdownMenuItem(value: v, child: Text('$v Litres', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13))))
-                            .toList(),
-                        onChanged: (val) => setState(() => selectedCapacity = val!),
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)]),
-                      child: DropdownButton<String>(
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)]),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Carburant :', style: TextStyle(fontWeight: FontWeight.bold)),
+                      DropdownButton<String>(
                         value: selectedFuel,
                         underline: const SizedBox(),
-                        items: ['E10', 'SP98', 'SP95', 'Gazole', 'E85']
-                            .map((f) => DropdownMenuItem(value: f, child: Text(f, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13))))
+                        items: ['SP95', 'SP98', 'E10', 'Gazole', 'E85']
+                            .map((f) => DropdownMenuItem(value: f, child: Text(f, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14))))
                             .toList(),
                         onChanged: (val) => setState(() => selectedFuel = val!),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 8),
                 SizedBox(
@@ -335,9 +395,9 @@ class _MapScreenState extends State<MapScreen> {
                       padding: const EdgeInsets.symmetric(vertical: 10),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
-                    onPressed: findCheapestInCurrentCity,
+                    onPressed: findCheapestInUserZone,
                     icon: const Icon(Icons.local_offer),
-                    label: const Text('Moins cher dans ma ville', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    label: Text('Station la moins chère autour de moi ($selectedFuel)', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                   ),
                 ),
               ],
