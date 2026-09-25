@@ -43,10 +43,9 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> {
   final List<Station> _stations = [];
   String _selectedFuel = 'E10';
-  int _tankCapacity = 50;
   final MapController _mapController = MapController();
 
-  LatLng _currentCenter = const LatLng(48.8878, 2.1807); // Rueil-Malmaison par défaut
+  LatLng _currentCenter = const LatLng(48.8878, 2.1807); // Position par défaut
   LatLng? _userLocation;
   StreamSubscription<Position>? _positionStreamSubscription;
 
@@ -138,7 +137,6 @@ class _MapScreenState extends State<MapScreen> {
     if (!mounted) return;
     setState(() => _isLoadingStations = true);
 
-    // On récupère un lot de 100 stations pour fluidifier l'affichage sur mobile
     final url = Uri.parse(
       'https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/exports/json?limit=100',
     );
@@ -201,7 +199,12 @@ class _MapScreenState extends State<MapScreen> {
         if (mounted) setState(() => _isLoadingStations = false);
       }
     } catch (e) {
-      if (mounted) setState(() => _isLoadingStations = false);
+      if (mounted) {
+        setState(() => _isLoadingStations = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Erreur lors du chargement des stations.')),
+        );
+      }
     }
   }
 
@@ -212,12 +215,12 @@ class _MapScreenState extends State<MapScreen> {
     final candidates = _stations.where((s) {
       final hasFuel = s.prices.containsKey(_selectedFuel) && !s.shortages.contains(_selectedFuel);
       final distance = Geolocator.distanceBetween(center.latitude, center.longitude, s.latitude, s.longitude);
-      return hasFuel && distance <= 20000; // Dans un rayon de 20km
+      return hasFuel && distance <= 25000; // Rayon de 25km
     }).toList();
 
     if (candidates.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Aucune station disponible à proximité.')),
+        const SnackBar(content: Text('Aucune station disponible à proximité pour ce carburant.')),
       );
       return;
     }
@@ -230,17 +233,19 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _openNavigation(double lat, double lng) async {
-    final uri = Uri.parse('google.navigation:q=$lat,$lng');
-    final fallbackUri = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$lat,$lng');
+    final Uri appUri = Uri.parse('google.navigation:q=$lat,$lng');
+    final Uri webUri = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$lat,$lng');
 
     try {
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri);
+      if (await canLaunchUrl(appUri)) {
+        await launchUrl(appUri, mode: LaunchMode.externalApplication);
       } else {
-        await launchUrl(fallbackUri, mode: LaunchMode.externalApplication);
+        await launchUrl(webUri, mode: LaunchMode.externalApplication);
       }
     } catch (_) {
-      await launchUrl(fallbackUri, mode: LaunchMode.externalApplication);
+      try {
+        await launchUrl(webUri, mode: LaunchMode.externalApplication);
+      } catch (_) {}
     }
   }
 
@@ -251,7 +256,14 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   void _showStationDetails(Station station) {
-    final price = station.prices[_selectedFuel];
+    final center = _userLocation ?? _currentCenter;
+    final distanceMeters = Geolocator.distanceBetween(
+      center.latitude,
+      center.longitude,
+      station.latitude,
+      station.longitude,
+    );
+    final distanceKm = (distanceMeters / 1000).toStringAsFixed(1);
 
     showModalBottomSheet(
       context: context,
@@ -266,13 +278,85 @@ class _MapScreenState extends State<MapScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(station.name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.between,
+              children: [
+                Expanded(
+                  child: Text(
+                    station.name,
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '$distanceKm km',
+                    style: TextStyle(color: Colors.blue.shade700, fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 4),
-            Text(station.address, style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+            Text(
+              station.address,
+              style: TextStyle(color: Colors.grey[600], fontSize: 13),
+            ),
             const SizedBox(height: 16),
-            if (price != null)
-              Text('Prix : ${price.toStringAsFixed(3)} €/L', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green)),
-            const SizedBox(height: 20),
+            const Text(
+              'Tous les carburants :',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.blueGrey),
+            ),
+            const SizedBox(height: 8),
+            if (station.prices.isEmpty)
+              const Text('Aucun tarif disponible.', style: TextStyle(color: Colors.grey))
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: station.prices.entries.map((entry) {
+                  final isSelectedFuel = entry.key == _selectedFuel;
+                  final isRupture = station.shortages.contains(entry.key);
+
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: isSelectedFuel ? Colors.blue.shade50.withOpacity(0.5) : Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: isSelectedFuel ? Colors.blue : Colors.grey.shade300,
+                        width: isSelectedFuel ? 1.5 : 1,
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          entry.key,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: isSelectedFuel ? Colors.blue.shade700 : Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          isRupture ? 'Rupture' : '${entry.value.toStringAsFixed(3)} €',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isRupture ? Colors.red : Colors.green.shade700,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+            const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
@@ -282,6 +366,11 @@ class _MapScreenState extends State<MapScreen> {
                 },
                 icon: const Icon(Icons.navigation),
                 label: const Text('LANCER L\'ITINÉRAIRE'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
               ),
             ),
           ],
@@ -298,6 +387,12 @@ class _MapScreenState extends State<MapScreen> {
         backgroundColor: Colors.blue,
         foregroundColor: Colors.white,
         actions: [
+          // Bouton de rafraîchissement manuel
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _fetchStations,
+            tooltip: 'Rafraîchir les prix',
+          ),
           DropdownButton<String>(
             value: _selectedFuel,
             dropdownColor: Colors.blue,
@@ -365,10 +460,32 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
           if (_isLoadingStations)
-            const Positioned(
+            Positioned(
               top: 16,
               left: 16,
-              child: CircularProgressIndicator(),
+              right: 16,
+              child: Card(
+                elevation: 4,
+                color: Colors.white.withOpacity(0.9),
+                child: const Padding(
+                  padding: EdgeInsets.all(12.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 12),
+                      Text(
+                        'Mise à jour des stations...',
+                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
         ],
       ),
