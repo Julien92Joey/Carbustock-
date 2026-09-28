@@ -94,31 +94,34 @@ class _MapScreenState extends State<MapScreen> {
           _currentCenter = _userLocation!;
           _isLoadingLocation = false;
         });
-        _mapController.move(_currentCenter, 13.5);
+        _mapController.move(_currentCenter, 14.0);
       }
     } catch (_) {
       if (mounted) setState(() => _isLoadingLocation = false);
     }
   }
 
-  void _centerOnUser() {
+  Future<void> _centerOnUser() async {
+    await _initLocationService();
     if (_userLocation != null) {
-      _mapController.move(_userLocation!, 14.5);
-    } else {
-      _initLocationService();
+      _mapController.move(_userLocation!, 15.0);
     }
   }
 
-  String _extractBrandName(String address, String city) {
-    final String fullText = '$address $city'.toUpperCase();
+  String _extractBrandName(String address, String city, String rawBrandName) {
+    final String fullText = '$rawBrandName $address $city'.toUpperCase();
     final brands = [
-      'TOTAL', 'LECLERC', 'E.LECLERC', 'INTERMARCHE',
+      'TOTALENERGIES', 'TOTAL', 'LECLERC', 'E.LECLERC', 'INTERMARCHE',
       'CARREFOUR', 'BP', 'ESSO', 'SHELL', 'AUCHAN', 'CASINO', 'CORA',
-      'SYSTEME U', 'SUPER U', 'HYPER U', 'AVIA', 'NETTO'
+      'SYSTEME U', 'SUPER U', 'HYPER U', 'AVIA', 'NETTO', 'TOTAL CONTACT'
     ];
 
     for (final b in brands) {
-      if (fullText.contains(b)) return b;
+      if (fullText.contains(b)) {
+        if (b == 'TOTALENERGIES' || b == 'TOTAL CONTACT') return 'TOTAL';
+        if (b == 'E.LECLERC') return 'LECLERC';
+        return b;
+      }
     }
     return city.isNotEmpty ? city.toUpperCase() : 'STATION';
   }
@@ -147,7 +150,8 @@ class _MapScreenState extends State<MapScreen> {
 
           final String address = item['adresse']?.toString() ?? '';
           final String city = item['ville']?.toString() ?? '';
-          final String brandName = _extractBrandName(address, city);
+          final String rawBrand = item['brand']?.toString() ?? item['nom']?.toString() ?? '';
+          final String brandName = _extractBrandName(address, city, rawBrand);
 
           final Map<String, double> prices = {};
           final List<String> short = [];
@@ -193,22 +197,33 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  void _findCheapestNearbyStation() {
-    if (_stations.isEmpty) return;
+  void _findCheapestNearbyStation() async {
+    // S'assure d'avoir la position exacte avant de calculer
+    if (_userLocation == null) {
+      await _initLocationService();
+    }
 
     final center = _userLocation ?? _currentCenter;
+    
+    // Filtre strict dans un rayon de 10 km (10000 mètres) autour de la position utilisateur
     final candidates = _stations.where((s) {
       final hasFuel = s.prices.containsKey(_selectedFuel) && !s.shortages.contains(_selectedFuel);
       final distance = Geolocator.distanceBetween(center.latitude, center.longitude, s.latitude, s.longitude);
-      return hasFuel && distance <= 25000;
+      return hasFuel && distance <= 10000;
     }).toList();
 
-    if (candidates.isEmpty) return;
+    if (candidates.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Aucune station trouvée dans un rayon de 10 km avec ce carburant.')),
+      );
+      return;
+    }
 
+    // Trie par prix le plus bas
     candidates.sort((a, b) => a.prices[_selectedFuel]!.compareTo(b.prices[_selectedFuel]!));
     final cheapest = candidates.first;
 
-    _mapController.move(LatLng(cheapest.latitude, cheapest.longitude), 14.5);
+    _mapController.move(LatLng(cheapest.latitude, cheapest.longitude), 15.0);
     _showStationDetails(cheapest);
   }
 
@@ -287,54 +302,57 @@ class _MapScreenState extends State<MapScreen> {
             ),
             const SizedBox(height: 16),
             const Text(
-              'Tous les carburants :',
+              'Tableau des carburants & prix :',
               style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.blueGrey),
             ),
             const SizedBox(height: 8),
-            if (station.prices.isEmpty)
+            if (station.prices.isEmpty && station.shortages.isEmpty)
               const Text('Aucun tarif disponible.', style: TextStyle(color: Colors.grey))
             else
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: station.prices.entries.map((entry) {
-                  final isSelectedFuel = entry.key == _selectedFuel;
-                  final isRupture = station.shortages.contains(entry.key);
+              Container(
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey.shade300),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: ListView(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  children: ['E10', 'E5', 'SP98', 'GAZOLE', 'GPLC', 'E85'].map((fuelKey) {
+                    final hasPrice = station.prices.containsKey(fuelKey);
+                    final isRupture = station.shortages.contains(fuelKey);
+                    final priceVal = station.prices[fuelKey];
+                    final isSelected = fuelKey == _selectedFuel;
 
-                  return Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: isSelectedFuel ? Colors.blue.shade50.withOpacity(0.5) : Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: isSelectedFuel ? Colors.blue : Colors.grey.shade300,
-                        width: isSelectedFuel ? 1.5 : 1,
+                    if (!hasPrice && !isRupture) return const SizedBox.shrink();
+
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: isSelected ? Colors.blue.shade50.withOpacity(0.4) : Colors.transparent,
+                        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
                       ),
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          entry.key,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: isSelectedFuel ? Colors.blue.shade700 : Colors.black87,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            fuelKey,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: isSelected ? Colors.blue.shade800 : Colors.black87,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          isRupture ? 'Rupture' : '${entry.value.toStringAsFixed(3)} €',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: isRupture ? Colors.red : Colors.green.shade700,
-                            fontWeight: FontWeight.w600,
+                          Text(
+                            isRupture ? 'Rupture' : (priceVal != null ? '${priceVal.toStringAsFixed(3)} €' : 'N/A'),
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: isRupture ? Colors.red : Colors.green.shade700,
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                  );
-                }).toList(),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
               ),
             const SizedBox(height: 24),
             SizedBox(
@@ -361,6 +379,86 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Création de la liste des marqueurs incluant les stations et la position de l'utilisateur
+    final List<Marker> allMarkers = [];
+
+    // Ajout des marqueurs de stations
+    for (var station in _stations) {
+      final color = _getMarkerColor(station);
+      final price = station.prices[_selectedFuel];
+      allMarkers.add(
+        Marker(
+          point: LatLng(station.latitude, station.longitude),
+          width: 76,
+          height: 48,
+          child: GestureDetector(
+            onTap: () => _showStationDetails(station),
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: color, width: 1.5),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.15),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    station.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 7.5, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    price != null ? '${price.toStringAsFixed(2)}€' : 'RPT',
+                    style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Ajout du point bleu de géolocalisation de l'utilisateur
+    if (_userLocation != null) {
+      allMarkers.add(
+        Marker(
+          point: _userLocation!,
+          width: 36,
+          height: 36,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.blue.withOpacity(0.3),
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Container(
+                width: 16,
+                height: 16,
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade700,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 3),
+                  boxShadow: const [
+                    BoxShadow(color: Colors.black38, blurRadius: 4, offset: Offset(0, 2))
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('CarbuStock'),
@@ -391,58 +489,15 @@ class _MapScreenState extends State<MapScreen> {
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
-              initialCenter: _currentCenter, 
-              initialZoom: 12.0,
+              initialCenter: _currentCenter,
+              initialZoom: 14.0,
             ),
             children: [
               TileLayer(
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.example.carbustock',
               ),
-              MarkerLayer(
-                markers: _stations.map((station) {
-                  final color = _getMarkerColor(station);
-                  final price = station.prices[_selectedFuel];
-                  return Marker(
-                    point: LatLng(station.latitude, station.longitude),
-                    width: 76,
-                    height: 48,
-                    child: GestureDetector(
-                      onTap: () => _showStationDetails(station),
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: color, width: 1.5),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.15),
-                              blurRadius: 4,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              station.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 7.5, fontWeight: FontWeight.bold),
-                            ),
-                            Text(
-                              price != null ? '${price.toStringAsFixed(2)}€' : 'RPT',
-                              style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
+              MarkerLayer(markers: allMarkers),
             ],
           ),
           Positioned(
@@ -455,7 +510,7 @@ class _MapScreenState extends State<MapScreen> {
               label: const Text('MOINS CHÈRE', style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           ),
-          if (_isLoadingStations)
+          if (_isLoadingStations || _isLoadingLocation)
             Positioned(
               top: 16,
               left: 16,
@@ -475,7 +530,7 @@ class _MapScreenState extends State<MapScreen> {
                       ),
                       SizedBox(width: 12),
                       Text(
-                        'Mise à jour des stations...',
+                        'Actualisation en cours...',
                         style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
                       ),
                     ],
