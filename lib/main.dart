@@ -43,19 +43,45 @@ class MapScreen extends StatefulWidget {
 
 class _MapScreenState extends State<MapScreen> {
   final List<Station> _stations = [];
+  final Set<String> _favoriteIds = {};
+  
   String _selectedFuel = 'E10';
-  final MapController _mapController = MapController();
+  String _selectedBrand = 'TOUTES';
+  String _searchQuery = '';
+  bool _isListView = false;
+  bool _showFavoritesOnly = false;
 
-  LatLng _currentCenter = const LatLng(48.8878, 2.1807);
+  final MapController _mapController = MapController();
+  final TextEditingController _searchController = TextEditingController();
+
+  LatLng _currentCenter = const LatLng(48.8878, 2.1807); // Position par défaut
   LatLng? _userLocation;
 
   bool _isLoadingLocation = false;
   bool _isLoadingStations = false;
 
+  final List<String> _availableBrands = [
+    'TOUTES',
+    'LECLERC',
+    'TOTAL',
+    'BP',
+    'ESSO',
+    'INTERMARCHE',
+    'CARREFOUR',
+    'AUCHAN',
+    'AVIA',
+  ];
+
   @override
   void initState() {
     super.initState();
     _initLocationService();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _initLocationService() async {
@@ -134,7 +160,6 @@ class _MapScreenState extends State<MapScreen> {
     if (!mounted) return;
     setState(() => _isLoadingStations = true);
 
-    // Récupération de toutes les stations de France sans restriction de nombre
     final url = Uri.parse(
       'https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/exports/json?limit=10000',
     );
@@ -202,44 +227,84 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  void _toggleFavorite(String stationId) {
+    setState(() {
+      if (_favoriteIds.contains(stationId)) {
+        _favoriteIds.remove(stationId);
+      } else {
+        _favoriteIds.add(stationId);
+      }
+    });
+  }
+
+  // Algorithme intelligent : Recherche prioritairement dans la ville de la géo-localisation du téléphone
   void _findCheapestNearbyStation() async {
     if (_userLocation == null) {
       await _initLocationService();
     }
 
     final center = _userLocation ?? _currentCenter;
-    
-    // Filtrage dans un rayon de 15 km pour s'assurer de trouver un large choix autour
-    final candidates = _stations.where((s) {
+    if (_stations.isEmpty) return;
+
+    // 1. Identifier la station la plus proche du téléphone pour extraire la ville de sa géo-localisation
+    Station nearestStation = _stations.first;
+    double minInitialDist = double.infinity;
+    for (var s in _stations) {
+      double d = Geolocator.distanceBetween(center.latitude, center.longitude, s.latitude, s.longitude);
+      if (d < minInitialDist) {
+        minInitialDist = d;
+        nearestStation = s;
+      }
+    }
+
+    // Extraction du nom de la ville de la position actuelle
+    String phoneCity = '';
+    final parts = nearestStation.address.split(' ');
+    if (parts.isNotEmpty) {
+      phoneCity = parts.last.toUpperCase();
+    }
+
+    // 2. Filtrer les stations situées dans cette même ville
+    List<Station> candidates = _stations.where((s) {
       final hasFuel = s.prices.containsKey(_selectedFuel) && !s.shortages.contains(_selectedFuel);
-      final distance = Geolocator.distanceBetween(center.latitude, center.longitude, s.latitude, s.longitude);
-      return hasFuel && distance <= 15000;
+      final matchesBrand = _selectedBrand == 'TOUTES' || s.name == _selectedBrand;
+      final isInCity = phoneCity.isNotEmpty && s.address.toUpperCase().contains(phoneCity);
+      return hasFuel && matchesBrand && isInCity;
     }).toList();
+
+    // 3. Si aucune station n'est trouvée dans la ville exacte, élargir à un rayon de 30 km autour du téléphone
+    if (candidates.isEmpty) {
+      candidates = _stations.where((s) {
+        final hasFuel = s.prices.containsKey(_selectedFuel) && !s.shortages.contains(_selectedFuel);
+        final matchesBrand = _selectedBrand == 'TOUTES' || s.name == _selectedBrand;
+        final distance = Geolocator.distanceBetween(center.latitude, center.longitude, s.latitude, s.longitude);
+        return hasFuel && matchesBrand && distance <= 30000;
+      }).toList();
+    }
 
     if (candidates.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Aucune station disponible dans un rayon de 15 km avec ce carburant.')),
+        SnackBar(content: Text('Aucune station trouvée pour $_selectedBrand avec $_selectedFuel.')),
       );
       return;
     }
 
-    // 1. Trouver le prix le plus bas parmi les candidates
+    // 4. Trouver le tarif le plus bas parmi ces candidats
     double minPrice = candidates.map((s) => s.prices[_selectedFuel]!).reduce((a, b) => a < b ? a : b);
-
-    // 2. Garder les stations dont le prix est très proche du prix minimum (marge de 2 centimes max)
     final bestCandidates = candidates.where((s) => s.prices[_selectedFuel]! <= minPrice + 0.02).toList();
 
-    // 3. Trier ces stations par distance pour privilégier la plus proche de la position utilisateur
+    // 5. Trier par proximité par rapport à la position GPS du téléphone
     bestCandidates.sort((a, b) {
       final distA = Geolocator.distanceBetween(center.latitude, center.longitude, a.latitude, a.longitude);
       final distB = Geolocator.distanceBetween(center.latitude, center.longitude, b.latitude, b.longitude);
       return distA.compareTo(distB);
     });
 
-    final cheapestAndClosest = bestCandidates.first;
+    final targetStation = bestCandidates.first;
 
-    _mapController.move(LatLng(cheapestAndClosest.latitude, cheapestAndClosest.longitude), 15.5);
-    _showStationDetails(cheapestAndClosest);
+    setState(() => _isListView = false);
+    _mapController.move(LatLng(targetStation.latitude, targetStation.longitude), 15.5);
+    _showStationDetails(targetStation);
   }
 
   Future<void> _openNavigation(double lat, double lng) async {
@@ -265,6 +330,31 @@ class _MapScreenState extends State<MapScreen> {
     return Colors.grey;
   }
 
+  List<Station> _getFilteredStations() {
+    final center = _userLocation ?? _currentCenter;
+    
+    final filtered = _stations.where((station) {
+      final matchesBrand = _selectedBrand == 'TOUTES' || station.name == _selectedBrand;
+      final matchesFav = !_showFavoritesOnly || _favoriteIds.contains(station.id);
+      
+      bool matchesSearch = true;
+      if (_searchQuery.isNotEmpty) {
+        final query = _searchQuery.toLowerCase();
+        matchesSearch = station.name.toLowerCase().contains(query) || 
+                        station.address.toLowerCase().contains(query);
+      }
+      return matchesBrand && matchesFav && matchesSearch;
+    }).toList();
+
+    filtered.sort((a, b) {
+      final distA = Geolocator.distanceBetween(center.latitude, center.longitude, a.latitude, a.longitude);
+      final distB = Geolocator.distanceBetween(center.latitude, center.longitude, b.latitude, b.longitude);
+      return distA.compareTo(distB);
+    });
+
+    return filtered;
+  }
+
   void _showStationDetails(Station station) {
     final center = _userLocation ?? _currentCenter;
     final distanceMeters = Geolocator.distanceBetween(
@@ -274,6 +364,7 @@ class _MapScreenState extends State<MapScreen> {
       station.longitude,
     );
     final distanceKm = (distanceMeters / 1000).toStringAsFixed(1);
+    final isFavorite = _favoriteIds.contains(station.id);
 
     showModalBottomSheet(
       context: context,
@@ -282,133 +373,146 @@ class _MapScreenState extends State<MapScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (_) => Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Text(
-                    station.name,
-                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+      builder: (context) => StatefulBuilder(
+        builder: (BuildContext context, StateSetter setModalState) => Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      station.name,
+                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    ),
                   ),
-                ),
+                  IconButton(
+                    icon: Icon(
+                      isFavorite ? Icons.favorite : Icons.favorite_border,
+                      color: Colors.red,
+                    ),
+                    onPressed: () {
+                      _toggleFavorite(station.id);
+                      setModalState(() {});
+                      setState(() {});
+                    },
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '$distanceKm km',
+                      style: TextStyle(color: Colors.blue.shade700, fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                station.address,
+                style: TextStyle(color: Colors.grey[600], fontSize: 13),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Tous les carburants disponibles :',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.blueGrey),
+              ),
+              const SizedBox(height: 10),
+              if (station.prices.isEmpty && station.shortages.isEmpty)
+                const Text('Aucun tarif disponible.', style: TextStyle(color: Colors.grey))
+              else
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
+                    border: Border.all(color: Colors.grey.shade200),
                     borderRadius: BorderRadius.circular(12),
+                    color: Colors.grey.shade50,
                   ),
-                  child: Text(
-                    '$distanceKm km',
-                    style: TextStyle(color: Colors.blue.shade700, fontWeight: FontWeight.bold, fontSize: 13),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Text(
-              station.address,
-              style: TextStyle(color: Colors.grey[600], fontSize: 13),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-          'Tous les carburants disponibles :',
-          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.blueGrey),
-        ),
-            const SizedBox(height: 10),
-            if (station.prices.isEmpty && station.shortages.isEmpty)
-              const Text('Aucun tarif disponible.', style: TextStyle(color: Colors.grey))
-            else
-              Container(
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade200),
-                  borderRadius: BorderRadius.circular(12),
-                  color: Colors.grey.shade50,
-                ),
-                child: ListView(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  children: ['E10', 'E5', 'SP98', 'GAZOLE', 'GPLC', 'E85'].map((fuelKey) {
-                    final hasPrice = station.prices.containsKey(fuelKey);
-                    final isRupture = station.shortages.contains(fuelKey);
-                    final priceVal = station.prices[fuelKey];
-                    final isSelected = fuelKey == _selectedFuel;
+                  child: ListView(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    children: ['E10', 'E5', 'SP98', 'GAZOLE', 'GPLC', 'E85'].map((fuelKey) {
+                      final hasPrice = station.prices.containsKey(fuelKey);
+                      final isRupture = station.shortages.contains(fuelKey);
+                      final priceVal = station.prices[fuelKey];
+                      final isSelected = fuelKey == _selectedFuel;
 
-                    if (!hasPrice && !isRupture) return const SizedBox.shrink();
+                      if (!hasPrice && !isRupture) return const SizedBox.shrink();
 
-                    return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: isSelected ? Colors.blue.shade50.withOpacity(0.6) : Colors.transparent,
-                        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            children: [
-                              Text(
-                                fuelKey,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
-                                  color: isSelected ? Colors.blue.shade800 : Colors.black87,
-                                ),
-                              ),
-                              if (isSelected) ...[
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: Colors.blue,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: const Text(
-                                    'Sélectionné',
-                                    style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: isSelected ? Colors.blue.shade50.withOpacity(0.6) : Colors.transparent,
+                          border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  fuelKey,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                    color: isSelected ? Colors.blue.shade800 : Colors.black87,
                                   ),
                                 ),
+                                if (isSelected) ...[
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: const Text(
+                                      'Sélectionné',
+                                      style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                ],
                               ],
-                            ],
-                          ),
-                          Text(
-                            isRupture ? 'Rupture' : (priceVal != null ? '${priceVal.toStringAsFixed(3)} €' : 'N/A'),
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                              color: isRupture ? Colors.red : Colors.green.shade700,
                             ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
+                            Text(
+                              isRupture ? 'Rupture' : (priceVal != null ? '${priceVal.toStringAsFixed(3)} €' : 'N/A'),
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                                color: isRupture ? Colors.red : Colors.green.shade700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _openNavigation(station.latitude, station.longitude);
+                  },
+                  icon: const Icon(Icons.navigation),
+                  label: const Text('LANCER L\'ITINÉRAIRE', style: TextStyle(fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue.shade600,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
                 ),
               ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _openNavigation(station.latitude, station.longitude);
-                },
-                icon: const Icon(Icons.navigation),
-                label: const Text('LANCER L\'ITINÉRAIRE', style: TextStyle(fontWeight: FontWeight.bold)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue.shade600,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -416,10 +520,10 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final List<Marker> allMarkers = [];
+    final filteredStations = _getFilteredStations();
 
-    // Ajout des stations sur la carte avec un design optimisé (nom clair et prix)
-    for (var station in _stations) {
+    final List<Marker> allMarkers = [];
+    for (var station in filteredStations) {
       final color = _getMarkerColor(station);
       final price = station.prices[_selectedFuel];
       allMarkers.add(
@@ -466,7 +570,6 @@ class _MapScreenState extends State<MapScreen> {
       );
     }
 
-    // Ajout du point bleu de géolocalisation utilisateur
     if (_userLocation != null) {
       allMarkers.add(
         Marker(
@@ -505,9 +608,15 @@ class _MapScreenState extends State<MapScreen> {
         elevation: 2,
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _fetchStations,
-            tooltip: 'Rafraîchir les prix',
+            icon: Icon(_showFavoritesOnly ? Icons.favorite : Icons.favorite_border),
+            color: _showFavoritesOnly ? Colors.redAccent : Colors.white,
+            onPressed: () => setState(() => _showFavoritesOnly = !_showFavoritesOnly),
+            tooltip: 'Favoris',
+          ),
+          IconButton(
+            icon: Icon(_isListView ? Icons.map : Icons.list),
+            onPressed: () => setState(() => _isListView = !_isListView),
+            tooltip: _isListView ? 'Voir la carte' : 'Voir la liste',
           ),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -529,75 +638,195 @@ class _MapScreenState extends State<MapScreen> {
               },
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
         ],
       ),
-      body: Stack(
+      body: Column(
         children: [
-          FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(
-              initialCenter: _currentCenter,
-              initialZoom: 14.5,
+          Container(
+            padding: const EdgeInsets.all(8.0),
+            color: Colors.blue.shade50,
+            child: Column(
+              children: [
+                TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Rechercher une ville, une enseigne...',
+                    prefixIcon: const Icon(Icons.search, size: 20),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, size: 20),
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() => _searchQuery = '');
+                            },
+                          )
+                        : null,
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                  onChanged: (val) => setState(() => _searchQuery = val),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 38,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _availableBrands.length,
+                    itemBuilder: (context, index) {
+                      final brand = _availableBrands[index];
+                      final isSelected = _selectedBrand == brand;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 6.0),
+                        child: ChoiceChip(
+                          label: Text(brand),
+                          selected: isSelected,
+                          selectedColor: Colors.blue.shade600,
+                          labelStyle: TextStyle(
+                            color: isSelected ? Colors.white : Colors.black87,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 11,
+                          ),
+                          onSelected: (selected) {
+                            setState(() => _selectedBrand = brand);
+                          },
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
-            children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.example.carbustock',
-              ),
-              MarkerLayer(markers: allMarkers),
-            ],
           ),
-          Positioned(
-            bottom: 24,
-            left: 16,
-            child: FloatingActionButton.extended(
-              onPressed: _findCheapestNearbyStation,
-              backgroundColor: Colors.green.shade600,
-              elevation: 4,
-              icon: const Icon(Icons.bolt, color: Colors.white),
-              label: const Text('MOINS CHÈRE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            ),
-          ),
-          if (_isLoadingStations || _isLoadingLocation)
-            Positioned(
-              top: 16,
-              left: 16,
-              right: 16,
-              child: Card(
-                elevation: 6,
-                shadowColor: Colors.black26,
-                color: Colors.white.withOpacity(0.95),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                child: const Padding(
-                  padding: EdgeInsets.all(14.0),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+          Expanded(
+            child: _isListView
+                ? ListView.builder(
+                    itemCount: filteredStations.length,
+                    itemBuilder: (context, index) {
+                      final station = filteredStations[index];
+                      final center = _userLocation ?? _currentCenter;
+                      final distanceKm = (Geolocator.distanceBetween(
+                                center.latitude, center.longitude,
+                                station.latitude, station.longitude,
+                              ) / 1000)
+                          .toStringAsFixed(1);
+                      final price = station.prices[_selectedFuel];
+                      final isRupture = station.shortages.contains(_selectedFuel);
+                      final isFav = _favoriteIds.contains(station.id);
+
+                      return Card(
+                        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        elevation: 1,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        child: ListTile(
+                          title: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  station.name,
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                ),
+                              ),
+                              IconButton(
+                                icon: Icon(
+                                  isFav ? Icons.favorite : Icons.favorite_border,
+                                  color: Colors.red,
+                                  size: 20,
+                                ),
+                                onPressed: () => _toggleFavorite(station.id),
+                              ),
+                            ],
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(station.address, style: const TextStyle(fontSize: 12)),
+                              const SizedBox(height: 4),
+                              Text(
+                                '$distanceKm km',
+                                style: TextStyle(color: Colors.blue.shade700, fontWeight: FontWeight.bold, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                          trailing: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                isRupture ? 'Rupture' : (price != null ? '${price.toStringAsFixed(3)} €' : 'N/A'),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 14,
+                                  color: isRupture ? Colors.red : Colors.green.shade700,
+                                ),
+                              ),
+                              const Text('Voir détails', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                            ],
+                          ),
+                          onTap: () => _showStationDetails(station),
+                        ),
+                      );
+                    },
+                  )
+                : Stack(
                     children: [
-                      SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(strokeWidth: 2.5),
+                      FlutterMap(
+                        mapController: _mapController,
+                        options: MapOptions(
+                          initialCenter: _currentCenter,
+                          initialZoom: 14.5,
+                        ),
+                        children: [
+                          TileLayer(
+                            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            userAgentPackageName: 'com.example.carbustock',
+                          ),
+                          MarkerLayer(markers: allMarkers),
+                        ],
                       ),
-                      SizedBox(width: 14),
-                      Text(
-                        'Chargement des stations en cours...',
-                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
+                      Positioned(
+                        bottom: 24,
+                        left: 16,
+                        child: FloatingActionButton.extended(
+                          onPressed: _findCheapestNearbyStation,
+                          backgroundColor: Colors.green.shade600,
+                          elevation: 4,
+                          icon: const Icon(Icons.bolt, color: Colors.white),
+                          label: const Text('MOINS CHÈRE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        ),
                       ),
                     ],
                   ),
-                ),
+          ),
+          if (_isLoadingStations || _isLoadingLocation)
+            Container(
+              padding: const EdgeInsets.all(10),
+              color: Colors.white.withOpacity(0.95),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                  SizedBox(width: 10),
+                  Text('Mise à jour des stations en cours...', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                ],
               ),
             ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _centerOnUser,
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.blue.shade700,
-        elevation: 4,
-        child: const Icon(Icons.my_location),
-      ),
+      floatingActionButton: _isListView
+          ? null
+          : FloatingActionButton(
+              onPressed: _centerOnUser,
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.blue.shade700,
+              elevation: 4,
+              child: const Icon(Icons.my_location),
+            ),
     );
   }
 }
