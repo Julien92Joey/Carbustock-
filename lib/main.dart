@@ -55,7 +55,6 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
-    _fetchStations();
     _initLocationService();
   }
 
@@ -66,6 +65,7 @@ class _MapScreenState extends State<MapScreen> {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       if (mounted) setState(() => _isLoadingLocation = false);
+      _fetchStations(); // Charge quand même les stations par défaut
       return;
     }
 
@@ -74,12 +74,14 @@ class _MapScreenState extends State<MapScreen> {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
         if (mounted) setState(() => _isLoadingLocation = false);
+        _fetchStations();
         return;
       }
     }
 
     if (permission == LocationPermission.deniedForever) {
       if (mounted) setState(() => _isLoadingLocation = false);
+      _fetchStations();
       return;
     }
 
@@ -99,6 +101,9 @@ class _MapScreenState extends State<MapScreen> {
     } catch (_) {
       if (mounted) setState(() => _isLoadingLocation = false);
     }
+    
+    // Une fois la position récupérée, on charge les stations
+    _fetchStations();
   }
 
   Future<void> _centerOnUser() async {
@@ -130,12 +135,13 @@ class _MapScreenState extends State<MapScreen> {
     if (!mounted) return;
     setState(() => _isLoadingStations = true);
 
+    // Augmentation de la limite à 2500 pour récupérer un large stock de stations en France
     final url = Uri.parse(
-      'https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/exports/json?limit=100',
+      'https://data.economie.gouv.fr/api/explore/v2.1/catalog/datasets/prix-des-carburants-en-france-flux-instantane-v2/exports/json?limit=2500',
     );
 
     try {
-      final response = await http.get(url).timeout(const Duration(seconds: 15));
+      final response = await http.get(url).timeout(const Duration(seconds: 20));
 
       if (response.statusCode == 200) {
         final results = json.decode(response.body) as List<dynamic>;
@@ -198,14 +204,13 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   void _findCheapestNearbyStation() async {
-    // S'assure d'avoir la position exacte avant de calculer
     if (_userLocation == null) {
       await _initLocationService();
     }
 
     final center = _userLocation ?? _currentCenter;
     
-    // Filtre strict dans un rayon de 10 km (10000 mètres) autour de la position utilisateur
+    // Filtre strict dans un rayon de 10 km autour de la position utilisateur
     final candidates = _stations.where((s) {
       final hasFuel = s.prices.containsKey(_selectedFuel) && !s.shortages.contains(_selectedFuel);
       final distance = Geolocator.distanceBetween(center.latitude, center.longitude, s.latitude, s.longitude);
@@ -219,7 +224,6 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
 
-    // Trie par prix le plus bas
     candidates.sort((a, b) => a.prices[_selectedFuel]!.compareTo(b.prices[_selectedFuel]!));
     final cheapest = candidates.first;
 
@@ -379,10 +383,8 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Création de la liste des marqueurs incluant les stations et la position de l'utilisateur
     final List<Marker> allMarkers = [];
 
-    // Ajout des marqueurs de stations
     for (var station in _stations) {
       final color = _getMarkerColor(station);
       final price = station.prices[_selectedFuel];
@@ -428,7 +430,6 @@ class _MapScreenState extends State<MapScreen> {
       );
     }
 
-    // Ajout du point bleu de géolocalisation de l'utilisateur
     if (_userLocation != null) {
       allMarkers.add(
         Marker(
@@ -530,7 +531,7 @@ class _MapScreenState extends State<MapScreen> {
                       ),
                       SizedBox(width: 12),
                       Text(
-                        'Actualisation en cours...',
+                        'Chargement des stations...',
                         style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
                       ),
                     ],
